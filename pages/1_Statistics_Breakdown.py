@@ -61,14 +61,17 @@ else:
             horizontal=True
         )
 
-    # Sort the DataFrame
-    df_display = df_stats.sort_values(
-        by=sort_column,
-        ascending=(sort_order == "Ascending")
-    ).reset_index(drop=True)
-    
-    # --- Display Table and Download Button ---
-    st.dataframe(df_display, use_container_width=True)
+   # Sort the DataFrame
+df_display = df_stats.sort_values(
+    by=sort_column,
+    ascending=(sort_order == "Ascending")
+).reset_index(drop=True)
+
+# --- ADD THIS LINE ---
+df_display.index += 1
+
+# --- Display Table and Download Button ---
+st.dataframe(df_display, use_container_width=True)
 
     csv = df_display.to_csv(index=False).encode('utf-8')
     with col3:
