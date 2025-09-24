@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import os
+import json
 
 # --- CONSTANTS (Moved from your notebook) ---
 # NOTE: It's better practice to store API keys as Streamlit secrets,
@@ -28,28 +29,53 @@ ALL_TOURNAMENTS = {
 }
 
 
-@st.cache_data(ttl=3600) # Cache for 1 hour
-def fetch_tournament_matches(tournament_path):
+@st.cache_data(ttl=3600)
+def fetch_live_tournament_matches(tournament_path):
     """
-    Load match data from Liquipedia API using tournament path.
-    This is a "pure" function that only returns data, without UI side effects.
+    This function is ONLY for fetching LIVE data and is cached for 1 hour.
     """
     try:
         params = BASE_PARAMS.copy()
         params['conditions'] = f"[[parent::{tournament_path}]]"
         url = "https://api.liquipedia.net/api/v3/match"
-
         resp = requests.get(url, headers=HEADERS, params=params)
-        resp.raise_for_status() # This will raise an error for bad responses
-
-        matches = resp.json().get("result", [])
-        # The st.toast and st.error calls have been removed from here.
-        return matches
-
-    except requests.exceptions.RequestException as e:
-        # Instead of st.error, we can log to the console for debugging
-        print(f"API Error fetching {tournament_path}: {e}")
-        return [] # Return an empty list on failure
+        resp.raise_for_status()
+        return resp.json().get("result", [])
     except Exception as e:
-        print(f"An unexpected error occurred for {tournament_path}: {e}")
-        return [] # Return an empty list on failure
+        print(f"API Error fetching {tournament_path}: {e}")
+        return []
+
+# --- NEW MASTER DATA LOADER ---
+def load_tournament_data(tournament_name):
+    """
+    Decides whether to load data from a local file (archived) or fetch from API (live).
+    """
+    tournament_info = ALL_TOURNAMENTS[tournament_name]
+    is_live = tournament_info.get('live', False)
+    
+    if not is_live:
+        # --- STRATEGY 1: Load from local file ---
+        # Create a filename-safe version of the tournament name
+        filename = f"{tournament_name.replace(' ', '_').replace('/', '_')}.json"
+        filepath = os.path.join("data", filename) # Assumes a 'data' folder
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                st.toast(f"Loaded {len(data)} matches for {tournament_name} from file.", icon="📄")
+                return data
+        except FileNotFoundError:
+            st.warning(f"Archived data file not found for {tournament_name}. Expected at: {filepath}")
+            # Optional: You could fetch and save it here the first time.
+            return []
+        except Exception as e:
+            st.error(f"Error reading local file for {tournament_name}: {e}")
+            return []
+            
+    else:
+        # --- STRATEGY 2: Fetch live data with Streamlit cache ---
+        path = tournament_info['path']
+        data = fetch_live_tournament_matches(path)
+        if data:
+            st.toast(f"Fetched {len(data)} live matches for {tournament_name} from API.", icon="📡")
+        return data
