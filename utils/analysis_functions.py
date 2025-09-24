@@ -100,26 +100,6 @@ def calculate_hero_stats_for_team(pooled_matches, team_filter="All Teams"):
 
     return pd.DataFrame(df_rows)
 
-Excellent! It's great to hear that the app is running correctly and you're ready for the next step. It's a good afternoon here in Jakarta, perfect for making more progress.
-
-Now we will complete Stage 2 by building the next two analysis pages. Our goal is to leverage the data we've already loaded to create the "Hero Detail Drilldown" and "Head-to-Head" comparison tools.
-
-This will involve updating our analysis logic file and then creating two new files for our pages directory.
-
-Part 1: Update the Analysis Logic (utils/analysis_functions.py)
-First, we need to extract the data processing logic for our new features from your notebook and place it in our central analysis file. This keeps our UI pages clean and focused only on presentation.
-
-Action: Add the following new functions to the end of your utils/analysis_functions.py file. This code is adapted directly from your notebook's build_hero_drilldown_cache and build_head_to_head_dashboard functions.
-
-Python
-
-# Add this code to the END of utils/analysis_functions.py
-
-from collections import Counter, defaultdict
-import pandas as pd
-
-# (The existing calculate_hero_stats_for_team function should be above this)
-
 def process_hero_drilldown_data(pooled_matches):
     """
     Processes all matches to create a cache of hero-specific stats.
