@@ -91,8 +91,15 @@ def single_table_dashboard():
     with st.sidebar.expander("Configure Playoff Brackets"):
         editable_brackets = [b.copy() for b in st.session_state.current_brackets]
         for i, bracket in enumerate(editable_brackets):
-            cols = st.columns([4, 2, 2, 1]); bracket['name'] = cols[0].text_input("Name", bracket['name'], key=f"s_name_{i}"); bracket['start'] = cols[1].number_input("Start", bracket['start'], min_value=1, key=f"s_start_{i}"); end_val = bracket['end'] or len(teams); bracket['end'] = cols[2].number_input("End", end_val, min_value=bracket['start'], key=f"s_end_{i}")
-            if cols[3].button("🗑️", key=f"s_del_{i}"): st.session_state.current_brackets.pop(i); st.rerun()
+            # THIS IS THE CORRECTED, READABLE VERSION OF THE BROKEN LINE
+            cols = st.columns([4, 2, 2, 1])
+            bracket['name'] = cols[0].text_input("Name", bracket['name'], key=f"s_name_{i}")
+            bracket['start'] = cols[1].number_input("Start", bracket['start'], min_value=1, key=f"s_start_{i}")
+            end_val = bracket['end'] or len(teams)
+            bracket['end'] = cols[2].number_input("End", end_val, min_value=bracket['start'], key=f"s_end_{i}")
+            if cols[3].button("🗑️", key=f"s_del_{i}"):
+                st.session_state.current_brackets.pop(i)
+                st.rerun()
         st.session_state.current_brackets = editable_brackets
         if st.button("Save Brackets", type="primary"): save_bracket_config(tournament_name, {"brackets": st.session_state.current_brackets}); st.success("Brackets saved!"); st.cache_data.clear()
     cutoff_dates = set(d for i in range(cutoff_week_idx + 1) for d in week_blocks[i]) if cutoff_week_idx >= 0 else set()
