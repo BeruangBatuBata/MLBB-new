@@ -38,33 +38,22 @@ teams = sorted(list(set(m["teamA"] for m in regular_season_matches) | set(m["tea
 all_dates = sorted(list(set(m["date"] for m in regular_season_matches)))
 week_blocks = build_week_blocks(all_dates)
 
-# --- NEW CACHED SIMULATION FUNCTION ---
+# --- NEW, LEANER CACHED SIMULATION FUNCTION ---
 @st.cache_data(show_spinner="Running Monte Carlo simulations...")
-def get_simulation_results(_teams, _played, _unplayed, _forced_outcomes, _brackets, _n_sim):
+def get_simulation_results(_teams, _current_wins, _current_diff, _unplayed_tuples, _forced_outcomes, _brackets, _n_sim):
     """
-    This cached function performs the heavy calculation.
-    It reruns automatically if any of its inputs (like the cutoff week) change.
+    This cached function is now a PURE simulation engine.
+    It takes simple data types as input and returns the probability DataFrame.
     """
-    current_wins, current_diff = defaultdict(int), defaultdict(int)
-    for m in _played:
-        if m["winner"] in ("1", "2"):
-            winner_idx = int(m["winner"]) - 1
-            teams_in_match = [m["teamA"], m["teamB"]]
-            winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
-            current_wins[winner] += 1
-            score_winner = m["scoreA"] if winner_idx == 0 else m["scoreB"]
-            score_loser = m["scoreB"] if winner_idx == 0 else m["scoreA"]
-            current_diff[winner] += score_winner - score_loser
-            current_diff[loser] += score_loser - score_winner
-
-    unplayed_tuples = [(m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in _unplayed]
-    
+    # The calculation of current_wins and current_diff has been moved out.
+    # We can now directly call the simulation logic.
     df_probs = run_monte_carlo_simulation(
-        _teams, current_wins, current_diff, unplayed_tuples, 
-        _forced_outcomes, _brackets, _n_sim
+        list(_teams), dict(_current_wins), dict(_current_diff), 
+        list(_unplayed_tuples), dict(_forced_outcomes), 
+        [dict(b) for b in _brackets], _n_sim
     )
     return df_probs
-
+    
 # --- Sidebar UI Controls ---
 st.sidebar.header("Simulation Controls")
 week_options = {f"Week {i+1} ({wk[0]} to {wk[-1]})": i for i, wk in enumerate(week_blocks)}
@@ -113,12 +102,33 @@ with st.expander("Set specific outcomes for upcoming matches", expanded=True):
             outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, index=default_index, format_func=lambda x: x[0], key=f"match_{date}_{teamA}")
             st.session_state.forced_outcomes[match_key] = outcome[1]
 
-# --- Main Logic: Call the cached function on EVERY rerun ---
-# We convert the forced_outcomes dict to a tuple of items to make it hashable for the cache
+# --- Main Logic: Prepare data and call the cached function ---
+# Convert forced_outcomes to a cache-friendly format
 forced_outcomes_tuple = tuple(sorted(st.session_state.forced_outcomes.items()))
+
+# Calculate current standings BEFORE calling the cache
+current_wins, current_diff = defaultdict(int), defaultdict(int)
+for m in played:
+    if m["winner"] in ("1", "2"):
+        winner_idx = int(m["winner"]) - 1
+        teams_in_match = [m["teamA"], m["teamB"]]
+        winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
+        current_wins[winner] += 1
+        score_winner = m["scoreA"] if winner_idx == 0 else m["scoreB"]
+        score_loser = m["scoreB"] if winner_idx == 0 else m["scoreA"]
+        current_diff[winner] += score_winner - score_loser
+        current_diff[loser] += score_loser - score_winner
+
+# Prepare other arguments for the cache
+unplayed_tuples = tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed)
+brackets_tuple = tuple(frozenset(d.items()) for d in st.session_state.current_brackets)
+current_wins_tuple = tuple(sorted(current_wins.items()))
+current_diff_tuple = tuple(sorted(current_diff.items()))
+
+# Call the cached function with simple, hashable data
 sim_results = get_simulation_results(
-    tuple(teams), tuple(map(str, played)), tuple(map(str, unplayed)), 
-    forced_outcomes_tuple, tuple(map(str, st.session_state.current_brackets)), n_simulations
+    tuple(teams), current_wins_tuple, current_diff_tuple,
+    unplayed_tuples, forced_outcomes_tuple, brackets_tuple, n_simulations
 )
 
 # --- Display Results ---
