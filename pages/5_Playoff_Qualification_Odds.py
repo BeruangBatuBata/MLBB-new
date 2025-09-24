@@ -162,7 +162,7 @@ def group_dashboard():
     st.markdown("---")
     st.subheader("Results")
     
-    # --- NEW: Restructured Results Display ---
+    # --- Restructured Results Display ---
     result_tabs = st.tabs(["Overall"] + sorted(groups.keys()))
 
     # Overall Tab
@@ -170,25 +170,25 @@ def group_dashboard():
         col1, col2 = st.columns(2)
         with col1:
             st.write("**Current Standings by Group**")
-            # Loop through each group and display its own standings table
             for group_name in sorted(groups.keys()):
                 st.write(f"**{group_name}**")
-                group_teams = groups[group_name]
-                standings_df = build_standings_table(group_teams, played)
+                standings_df = build_standings_table(groups[group_name], played)
                 st.dataframe(standings_df, use_container_width=True)
         with col2:
-            st.write("**Playoff Probabilities (Overall)**")
+            st.write("**Playoff Probabilities by Group**")
             if sim_results is not None and not sim_results.empty:
-                st.dataframe(sim_results, use_container_width=True, hide_index=True)
+                for group_name in sorted(groups.keys()):
+                    st.write(f"**{group_name}**")
+                    group_probs = sim_results[sim_results['Group'] == group_name].drop(columns=['Group'])
+                    st.dataframe(group_probs, use_container_width=True, hide_index=True)
 
     # Individual Group Tabs
     for i, group_name in enumerate(sorted(groups.keys())):
         with result_tabs[i+1]:
             col1, col2 = st.columns(2)
-            group_teams = groups[group_name]
             with col1:
                 st.write(f"**Current Standings ({group_name})**")
-                standings_df = build_standings_table(group_teams, played)
+                standings_df = build_standings_table(groups[group_name], played)
                 st.dataframe(standings_df, use_container_width=True)
             with col2:
                 st.write(f"**Playoff Probabilities ({group_name})**")
