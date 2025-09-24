@@ -12,14 +12,21 @@ if 'pooled_matches' not in st.session_state or not st.session_state['pooled_matc
     st.stop()
 
 # --- Cache the heavy processing ---
+# We now pass the list of tournament names as a "key" to invalidate the cache.
 @st.cache_data
-def get_hero_drilldown_data(_pooled_matches):
+def get_hero_drilldown_data(_pooled_matches, _tournament_names):
+    # The _tournament_names argument is only used to trigger the cache.
+    # The function itself still processes the full _pooled_matches data.
     return process_hero_drilldown_data(_pooled_matches)
 
 # --- UI Controls and Display ---
 pooled_matches = st.session_state['pooled_matches']
+# Get the list of names to use as our cache key
+selected_tournament_names = st.session_state['selected_tournaments']
+
 with st.spinner("Processing all matches for hero details..."):
-    all_heroes, hero_stats_map = get_hero_drilldown_data(pooled_matches)
+    # Call the function with both arguments
+    all_heroes, hero_stats_map = get_hero_drilldown_data(pooled_matches, selected_tournament_names)
 
 st.sidebar.header("Hero Filters")
 selected_hero = st.sidebar.selectbox(
