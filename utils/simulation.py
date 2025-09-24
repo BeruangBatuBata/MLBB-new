@@ -39,7 +39,6 @@ def save_bracket_config(tournament_name, config):
 
 # --- SERIES OUTCOME HELPER (Unchanged) ---
 def get_series_outcome_options(teamA, teamB, bo:int):
-    """Generates the possible outcomes for a best-of series."""
     opts=[("Random","random")]
     if bo==1:
         opts+=[(f"{teamA} 1–0","A10"), (f"{teamB} 1–0","B10")]
@@ -55,8 +54,8 @@ def get_series_outcome_options(teamA, teamB, bo:int):
         opts+=[(f"{teamA} Win","A1"), (f"{teamB} Win","B1")]
     return opts
 
+# --- STANDINGS TABLE BUILDER (Unchanged) ---
 def build_standings_table(teams, played_matches):
-    """Calculates the current standings based on a list of completed matches."""
     match_counts={t:0 for t in teams}
     match_wins={t:0 for t in teams}
     gwins={t:0 for t in teams}
@@ -80,21 +79,21 @@ def build_standings_table(teams, played_matches):
         
     df=pd.DataFrame(standings)
     if not df.empty:
-        # Sort by Match Wins, then by Game Difference
         df[['MW','ML']] = df['Match W-L'].str.split('-',expand=True).astype(int)
         df=df.sort_values(by=["MW","Diff"],ascending=[False,False]).reset_index(drop=True)
         df = df.drop(columns=["MW","ML"])
-        df.index += 1 # Make it 1-indexed for display
+        df.index += 1
     return df
 
-def run_monte_carlo_simulation(teams, current_wins, current_diff, unplayed_matches, forced_outcomes, n_sim=5000):
+# --- UPGRADED MONTE CARLO SIMULATION ---
+def run_monte_carlo_simulation(teams, current_wins, current_diff, unplayed_matches, forced_outcomes, brackets, n_sim=5000):
     """
-    Runs a Monte Carlo simulation for a single-table tournament.
-    This is a pure, heavy-lifting function.
+    Upgraded simulation that uses custom, named brackets for probability calculation.
     """
-    position_counts = {team: defaultdict(int) for team in teams}
+    finish_counter = {t: {b["name"]: 0 for b in brackets} for t in teams}
 
     for _ in range(n_sim):
+        # BUG FIX: .copy() is a method and needs parentheses to be called.
         sim_wins = current_wins.copy()
         sim_diff = current_diff.copy()
 
@@ -107,36 +106,37 @@ def run_monte_carlo_simulation(teams, current_wins, current_diff, unplayed_match
             else:
                 outcome = code
 
-            if outcome == "DRAW":
-                continue
-
+            if outcome == "DRAW": continue
+            
             if outcome.startswith("A"):
                 winner, loser = a, b
-                num = outcome[1:]
-            elif outcome.startswith("B"):
-                winner, loser = b, a
-                num = outcome[1:]
             else:
-                continue
-
+                winner, loser = b, a
+                
+            num = outcome[1:]
             w, l = (int(num[0]), int(num[1])) if len(num) == 2 else (int(num), 0)
 
             sim_wins[winner] += 1
             sim_diff[winner] += w - l
             sim_diff[loser] += l - w
 
-        ranked_teams = sorted(teams, key=lambda t: (sim_wins[t], sim_diff[t], random.random()), reverse=True)
+        ranked = sorted(teams, key=lambda t: (sim_wins[t], sim_diff[t], random.random()), reverse=True)
         
-        for pos, team in enumerate(ranked_teams):
-            position_counts[team][pos + 1] += 1
-    
-    # Calculate probabilities
+        for pos, t in enumerate(ranked):
+            rank = pos + 1
+            for bracket in brackets:
+                start = bracket["start"]
+                end = bracket["end"] if bracket["end"] is not None else len(teams)
+                if start <= rank <= end:
+                    finish_counter[t][bracket["name"]] += 1
+                    break
+
     prob_data = []
     for t in teams:
         row = {"Team": t}
-        for i in range(1, len(teams) + 1):
-            row[f"Rank {i} (%)"] = (position_counts[t][i] / n_sim) * 100
+        for bracket in brackets:
+            row[f"{bracket['name']} (%)"] = (finish_counter[t][bracket["name"]] / n_sim) * 100
         prob_data.append(row)
-
+    
     df_probs = pd.DataFrame(prob_data).round(2)
     return df_probs
