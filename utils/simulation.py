@@ -151,28 +151,58 @@ def run_monte_carlo_simulation(teams, current_wins, current_diff, unplayed_match
     return pd.DataFrame(rows).round(2)
 
 def run_monte_carlo_simulation_groups(groups, current_wins, current_diff, unplayed_matches, forced_outcomes, brackets, n_sim):
+    """
+    Corrected simulation for group stage tournaments.
+    This version ranks teams WITHIN their groups before applying brackets.
+    """
     teams = [t for g_teams in groups.values() for t in g_teams]
     finish_counter = {t: {b["name"]: 0 for b in brackets} for t in teams}
+
     for _ in range(n_sim):
-        sim_wins = defaultdict(int, current_wins); sim_diff = defaultdict(int, current_diff)
+        sim_wins = defaultdict(int, current_wins)
+        sim_diff = defaultdict(int, current_diff)
+
         for a, b, dt, bo in unplayed_matches:
             code = forced_outcomes.get((a, b, dt), "random")
             outcome = random.choice([c for _, c in get_series_outcome_options(a, b, bo) if c != "random"]) if code == "random" else code
             if outcome == "DRAW": continue
+            
             winner, loser = (a, b) if outcome.startswith("A") else (b, a)
-            num = outcome[1:]; w, l = (int(num[0]), int(num[1])) if len(num) == 2 else (int(num), 0)
-            sim_wins[winner] += 1; sim_diff[winner] += w - l; sim_diff[loser] += l - w
-        overall_ranked = sorted(teams, key=lambda t: (sim_wins[t], sim_diff[t], random.random()), reverse=True)
-        for pos, team in enumerate(overall_ranked):
-            rank = pos + 1
-            for bracket in brackets:
-                start, end = bracket["start"], bracket.get("end") or len(teams)
-                if start <= rank <= end: finish_counter[team][bracket["name"]] += 1; break
-    rows = []
+            num = outcome[1:]
+            w, l = (int(num[0]), int(num[1])) if len(num) == 2 else (int(num), 0)
+            
+            sim_wins[winner] += 1
+            sim_diff[winner] += w - l
+            sim_diff[loser] += l - w
+        
+        # --- THE CORRECTED LOGIC IS HERE ---
+        # Instead of one overall ranking, we rank each group individually.
+        for group_name, group_teams in groups.items():
+            # Rank teams only against others in their own group
+            ranked_in_group = sorted(group_teams, key=lambda t: (sim_wins[t], sim_diff[t], random.random()), reverse=True)
+            
+            # Apply bracket logic based on the intra-group ranking
+            for pos, team in enumerate(ranked_in_group):
+                rank_in_group = pos + 1
+                for bracket in brackets:
+                    start = bracket["start"]
+                    # Use a large number for an undefined end rank
+                    end = bracket.get("end") or len(group_teams) 
+                    if start <= rank_in_group <= end:
+                        finish_counter[team][bracket["name"]] += 1
+                        break
+    
+    # --- END OF CORRECTED LOGIC ---
+
+    prob_data = []
     for t in teams:
         row = {"Team": t}
         for g_name, g_teams in groups.items():
-            if t in g_teams: row["Group"] = g_name; break
-        for bracket in brackets: row[f"{bracket['name']} (%)"] = (finish_counter[t][bracket["name"]] / n_sim) * 100
+            if t in g_teams:
+                row["Group"] = g_name
+                break
+        for bracket in brackets:
+            row[f"{bracket['name']} (%)"] = (finish_counter[t][bracket["name"]] / n_sim) * 100
         rows.append(row)
+        
     return pd.DataFrame(rows).round(2)
