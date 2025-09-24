@@ -192,3 +192,92 @@ def run_monte_carlo_simulation(teams, current_wins, current_diff, unplayed_match
     
     df_probs = pd.DataFrame(prob_data).round(2)
     return df_probs
+
+def get_group_cache_key(tournament_name):
+    """Generate a unique filename for a tournament's group config."""
+    return f".group_config_{tournament_name.replace(' ', '_')}.json"
+
+def load_group_config(tournament_name):
+    """Load a saved group configuration from a local JSON file."""
+    cache_file = get_group_cache_key(tournament_name)
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None # Return None if no config exists
+
+def save_group_config(tournament_name, config):
+    """Save a group configuration to a local JSON file."""
+    cache_file = get_group_cache_key(tournament_name)
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump(config, f)
+        return True
+    except Exception:
+        return False
+
+def run_monte_carlo_simulation_groups(groups, current_wins, current_diff, unplayed_matches, forced_outcomes, brackets, n_sim=5000):
+    """
+    Monte Carlo simulation specifically for group stage tournaments.
+    """
+    teams = [t for g_teams in groups.values() for t in g_teams]
+    finish_counter = {t: {b["name"]: 0 for b in brackets} for t in teams}
+
+    for _ in range(n_sim):
+        sim_wins = defaultdict(int, current_wins)
+        sim_diff = defaultdict(int, current_diff)
+
+        for (a, b, dt, bo) in unplayed_matches:
+            code = forced_outcomes.get((a, b, dt), "random")
+            if code == "random":
+                options = [c for (_, c) in get_series_outcome_options(a, b, bo) if c != "random"]
+                if not options: continue
+                outcome = random.choice(options)
+            else:
+                outcome = code
+
+            if outcome == "DRAW": continue
+            
+            winner, loser = (a, b) if outcome.startswith("A") else (b, a)
+            num = outcome[1:]
+            w, l = (int(num[0]), int(num[1])) if len(num) == 2 else (int(num), 0)
+
+            sim_wins[winner] += 1
+            sim_diff[winner] += w - l
+            sim_diff[loser] += l - w
+        
+        # Rank teams within each group
+        group_rankings = {}
+        for g_name, g_teams in groups.items():
+            ranked = sorted(g_teams, key=lambda t: (sim_wins[t], sim_diff[t], random.random()), reverse=True)
+            group_rankings[g_name] = ranked
+        
+        # Combine all teams for an overall ranking to apply brackets
+        # This assumes brackets are based on overall performance, not just group placement.
+        # This logic can be customized if qualification rules are more complex.
+        overall_ranked_teams = sorted(teams, key=lambda t: (sim_wins[t], sim_diff[t], random.random()), reverse=True)
+
+        for pos, team in enumerate(overall_ranked_teams):
+            rank = pos + 1
+            for bracket in brackets:
+                start = bracket["start"]
+                end = bracket["end"] if bracket["end"] is not None else len(teams)
+                if start <= rank <= end:
+                    finish_counter[team][bracket["name"]] += 1
+                    break
+    
+    prob_data = []
+    for t in teams:
+        row = {"Team": t}
+        for g_name, g_teams in groups.items():
+            if t in g_teams:
+                row["Group"] = g_name
+                break
+        for bracket in brackets:
+            row[f"{bracket['name']} (%)"] = (finish_counter[t][bracket["name"]] / n_sim) * 100
+        prob_data.append(row)
+    
+    df_probs = pd.DataFrame(prob_data).round(2)
+    return df_probs
