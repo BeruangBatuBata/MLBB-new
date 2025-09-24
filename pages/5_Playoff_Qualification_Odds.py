@@ -169,10 +169,13 @@ def group_dashboard():
     with result_tabs[0]:
         col1, col2 = st.columns(2)
         with col1:
-            st.write("**Current Standings (Overall)**")
-            overall_teams = [team for g_teams in groups.values() for team in g_teams]
-            standings_df = build_standings_table(overall_teams, played)
-            st.dataframe(standings_df, use_container_width=True)
+            st.write("**Current Standings by Group**")
+            # Loop through each group and display its own standings table
+            for group_name in sorted(groups.keys()):
+                st.write(f"**{group_name}**")
+                group_teams = groups[group_name]
+                standings_df = build_standings_table(group_teams, played)
+                st.dataframe(standings_df, use_container_width=True)
         with col2:
             st.write("**Playoff Probabilities (Overall)**")
             if sim_results is not None and not sim_results.empty:
