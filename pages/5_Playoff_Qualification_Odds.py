@@ -23,7 +23,7 @@ if 'parsed_matches' not in st.session_state or not st.session_state['parsed_matc
 tournament_name = st.session_state.selected_tournaments[0]
 regular_season_matches = [m for m in st.session_state.parsed_matches if m.get("is_regular_season", False)]
 if not regular_season_matches:
-    st.error("No regular season matches found for this feature. This feature requires regular season data.")
+    st.error("No regular season matches found for this feature.")
     st.stop()
 teams = sorted(list(set(m["teamA"] for m in regular_season_matches) | set(m["teamB"] for m in regular_season_matches)))
 
@@ -34,12 +34,10 @@ def cached_single_table_sim(teams, played_matches_tuple, unplayed_tuples, forced
     wins, diffs = defaultdict(int), defaultdict(int)
     for m in played_matches:
         winner_idx = int(m["winner"]) - 1
-        teams_in_match = [m["teamA"], m["teamB"]]
-        winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
+        teams_in_match = [m["teamA"], m["teamB"]]; winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
         wins[winner] += 1
         s_w, s_l = (m["scoreA"], m["scoreB"]) if winner_idx == 0 else (m["scoreB"], m["scoreA"])
-        diffs[winner] += s_w - s_l
-        diffs[loser] += s_l - s_w
+        diffs[winner] += s_w - s_l; diffs[loser] += s_l - s_w
     return run_monte_carlo_simulation(list(teams), dict(wins), dict(diffs), list(unplayed_tuples), dict(forced_outcomes_tuple), [dict(b) for b in brackets_tuple], n_sim)
 
 @st.cache_data(show_spinner="Running group stage simulation...")
@@ -48,30 +46,24 @@ def cached_group_sim(groups, played_matches_tuple, unplayed_tuples, forced_outco
     wins, diffs = defaultdict(int), defaultdict(int)
     for m in played_matches:
         winner_idx = int(m["winner"]) - 1
-        teams_in_match = [m["teamA"], m["teamB"]]
-        winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
+        teams_in_match = [m["teamA"], m["teamB"]]; winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
         wins[winner] += 1
         s_w, s_l = (m["scoreA"], m["scoreB"]) if winner_idx == 0 else (m["scoreB"], m["scoreA"])
-        diffs[winner] += s_w - s_l
-        diffs[loser] += s_l - s_w
+        diffs[winner] += s_w - s_l; diffs[loser] += s_l - s_w
     return run_monte_carlo_simulation_groups(groups, dict(wins), dict(diffs), list(unplayed_tuples), dict(forced_outcomes_tuple), [dict(b) for b in brackets_tuple], n_sim)
 
 # --- UI Functions ---
 def group_setup_ui():
-    st.header(f"Group Configuration for {tournament_name}")
-    st.write("Assign the teams into their respective groups for the tournament.")
+    st.header(f"Group Configuration for {tournament_name}"); st.write("Assign the teams into their respective groups for the tournament.")
     if 'group_config' not in st.session_state or not isinstance(st.session_state.group_config, dict):
         st.session_state.group_config = {'groups': {'Group A': [], 'Group B': []}}
-    num_groups = st.number_input("Number of Groups", min_value=1, max_value=8, value=len(st.session_state.group_config.get('groups', {})))
+    num_groups = st.number_input("Number of Groups", 1, 8, len(st.session_state.group_config.get('groups', {})))
     current_groups = st.session_state.group_config.get('groups', {})
     if len(current_groups) != num_groups:
-        new_groups = {}
-        sorted_keys = sorted(current_groups.keys())
+        new_groups = {}; sorted_keys = sorted(current_groups.keys())
         for i in range(num_groups):
-            group_name = sorted_keys[i] if i < len(sorted_keys) else f"Group {chr(65+i)}"
-            new_groups[group_name] = current_groups.get(group_name, [])
-        st.session_state.group_config['groups'] = new_groups
-        st.rerun()
+            group_name = sorted_keys[i] if i < len(sorted_keys) else f"Group {chr(65+i)}"; new_groups[group_name] = current_groups.get(group_name, [])
+        st.session_state.group_config['groups'] = new_groups; st.rerun()
     st.markdown("---")
     assigned_teams = {team for group in current_groups.values() for team in group}
     unassigned_teams = [team for team in teams if team not in assigned_teams]
@@ -79,7 +71,7 @@ def group_setup_ui():
     cols = st.columns(num_groups)
     for i, (group_name, group_teams) in enumerate(current_groups.items()):
         with cols[i]:
-            st.subheader(group_name); new_teams = st.multiselect(f"Teams in {group_name}", options=teams, default=group_teams, key=f"group_{group_name}")
+            st.subheader(group_name); new_teams = st.multiselect(f"Teams in {group_name}", teams, default=group_teams, key=f"group_{group_name}")
             current_groups[group_name] = new_teams
     if st.button("Save & Continue", type="primary"):
         save_group_config(tournament_name, st.session_state.group_config); st.success("Group configuration saved!")
@@ -166,8 +158,8 @@ if st.session_state.page_view == 'format_selection':
     st.title("🏆 Playoff Odds: Tournament Format")
     st.write(f"How is **{tournament_name}** structured?")
     col1, col2 = st.columns(2)
-    if col1.button("Single Table League (e.g., MPL Regular Season)", use_container_width=True): st.session_state.page_view = 'single_table_sim'; st.rerun()
-    if col2.button("Group Stage (e.g., MSC, M-Series)", use_container_width=True):
+    if col1.button("Single Table League", use_container_width=True): st.session_state.page_view = 'single_table_sim'; st.rerun()
+    if col2.button("Group Stage", use_container_width=True):
         saved_config = load_group_config(tournament_name)
         if saved_config: st.session_state.group_config = saved_config; st.session_state.page_view = 'group_sim'
         else: st.session_state.page_view = 'group_setup'
