@@ -128,29 +128,49 @@ def group_dashboard():
     cutoff_week_label = st.sidebar.select_slider("Select Cutoff Week:", options=[f"Week {i+1}" for i in range(len(week_blocks))], value=f"Week {len(week_blocks)}")
     cutoff_week_idx = int(cutoff_week_label.split(" ")[1]) - 1
     n_sim = st.sidebar.number_input("Simulations:", 1000, 100000, 10000, 1000, key="group_sim_count")
-    brackets = load_bracket_config(tournament_name)['brackets']
+    
+    # --- ADD THIS ENTIRE BLOCK TO ADD THE MISSING FEATURE ---
+    if 'current_brackets' not in st.session_state or st.session_state.get('bracket_tournament') != tournament_name:
+        st.session_state.current_brackets = load_bracket_config(tournament_name)['brackets']
+        st.session_state.bracket_tournament = tournament_name
+    
+    with st.sidebar.expander("Configure Playoff Brackets"):
+        editable_brackets = [b.copy() for b in st.session_state.current_brackets]
+        for i, bracket in enumerate(editable_brackets):
+            cols = st.columns([4, 2, 2, 1])
+            bracket['name'] = cols[0].text_input("Name", bracket.get('name', ''), key=f"g_name_{i}")
+            bracket['start'] = cols[1].number_input("Start", value=bracket.get('start', 1), min_value=1, key=f"g_start_{i}")
+            end_val = bracket.get('end') or len(teams)
+            bracket['end'] = cols[2].number_input("End", value=end_val, min_value=bracket.get('start', 1), key=f"g_end_{i}")
+            if cols[3].button("🗑️", key=f"g_del_{i}"):
+                st.session_state.current_brackets.pop(i)
+                st.rerun()
+        st.session_state.current_brackets = editable_brackets
+        if st.button("Save Brackets", type="primary", key="g_save_brackets"):
+            save_bracket_config(tournament_name, {"brackets": st.session_state.current_brackets})
+            st.success("Brackets saved!")
+            st.cache_data.clear()
+    # --- END OF ADDITION ---
 
-    # --- NEW: Group Configuration UI in Sidebar ---
     with st.sidebar.expander("Configure Groups"):
         st.write("Edit team assignments for each group.")
         editable_groups = st.session_state.group_config.get('groups', {})
         for group_name, group_teams in editable_groups.items():
             new_teams = st.multiselect(f"Teams in {group_name}", options=teams, default=group_teams, key=f"edit_group_{group_name}")
             editable_groups[group_name] = new_teams
-        
         if st.button("Save Group Changes"):
             st.session_state.group_config['groups'] = editable_groups
             save_group_config(tournament_name, st.session_state.group_config)
             st.success("Group configuration updated!")
-            st.cache_data.clear() # Clear cache to reflect new groups
+            st.cache_data.clear()
             st.rerun()
 
-    # --- Data Processing ---
+    # --- Data Processing & "What-If" (The rest of the function remains the same) ---
+    brackets = st.session_state.current_brackets # Use the potentially edited brackets
     cutoff_dates = set(d for i in range(cutoff_week_idx + 1) for d in week_blocks[i]) if cutoff_week_idx >= 0 else set()
     played = [m for m in regular_season_matches if m["date"] in cutoff_dates and m.get("winner") in ("1", "2")]
     unplayed = [m for m in regular_season_matches if m not in played]
     
-    # --- "What-If" Scenarios ---
     st.subheader("Upcoming Matches (What-If Scenarios)")
     forced_outcomes = {}
     with st.expander("Set outcomes for upcoming matches", expanded=True):
@@ -162,7 +182,6 @@ def group_dashboard():
                 outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"g_match_{date}_{teamA}_{teamB}")
                 forced_outcomes[match_key] = outcome[1]
     
-    # --- Simulation Call ---
     current_wins, current_diff = defaultdict(int), defaultdict(int)
     for m in played:
         winner_idx = int(m["winner"]) - 1
@@ -174,32 +193,26 @@ def group_dashboard():
         current_diff[loser] += s_l - s_w
     sim_results = cached_group_sim(groups, tuple(sorted(current_wins.items())), tuple(sorted(current_diff.items())), tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed), tuple(sorted(forced_outcomes.items())), tuple(frozenset(b.items()) for b in brackets), n_sim)
     
-    st.markdown("---")
-    st.subheader("Results")
-    
-    # --- Results Display ---
+    st.markdown("---"); st.subheader("Results")
     result_tabs = st.tabs(["Overall"] + sorted(groups.keys()))
     with result_tabs[0]:
         col1, col2 = st.columns(2)
         with col1:
             st.write("**Current Standings by Group**")
             for group_name in sorted(groups.keys()):
-                st.write(f"**{group_name}**")
-                standings_df = build_standings_table(groups[group_name], played)
+                st.write(f"**{group_name}**"); standings_df = build_standings_table(groups[group_name], played)
                 st.dataframe(standings_df, use_container_width=True)
         with col2:
             st.write("**Playoff Probabilities by Group**")
             if sim_results is not None and not sim_results.empty:
                 for group_name in sorted(groups.keys()):
-                    st.write(f"**{group_name}**")
-                    group_probs = sim_results[sim_results['Group'] == group_name].drop(columns=['Group'])
+                    st.write(f"**{group_name}**"); group_probs = sim_results[sim_results['Group'] == group_name].drop(columns=['Group'])
                     st.dataframe(group_probs, use_container_width=True, hide_index=True)
     for i, group_name in enumerate(sorted(groups.keys())):
         with result_tabs[i+1]:
             col1, col2 = st.columns(2)
             with col1:
-                st.write(f"**Current Standings ({group_name})**")
-                standings_df = build_standings_table(groups[group_name], played)
+                st.write(f"**Current Standings ({group_name})**"); standings_df = build_standings_table(groups[group_name], played)
                 st.dataframe(standings_df, use_container_width=True)
             with col2:
                 st.write(f"**Playoff Probabilities ({group_name})**")
