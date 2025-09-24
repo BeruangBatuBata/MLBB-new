@@ -108,9 +108,11 @@ def run_monte_carlo_simulation(teams, current_wins, current_diff, unplayed_match
     finish_counter = {t: {b["name"]: 0 for b in brackets} for t in teams}
 
     for _ in range(n_sim):
-        # BUG FIX: .copy() is a method and needs parentheses to be called.
-        sim_wins = current_wins.copy()
-        sim_diff = current_diff.copy()
+        # --- THIS IS THE ONLY LINE THAT HAS CHANGED ---
+        # We now initialize a defaultdict to correctly handle teams with zero initial wins.
+        sim_wins = defaultdict(int, current_wins)
+        sim_diff = defaultdict(int, current_diff)
+        # --- END OF CHANGE ---
 
         for (a, b, dt, bo) in unplayed_matches:
             code = forced_outcomes.get((a, b, dt), "random")
