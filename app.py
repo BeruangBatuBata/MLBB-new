@@ -1,4 +1,7 @@
 import streamlit as st
+from collections import OrderedDict
+from utils.api_handler import ALL_TOURNAMENTS, fetch_tournament_matches
+from utils.data_processing import parse_matches
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -10,18 +13,50 @@ st.set_page_config(
 
 # --- Title and Introduction ---
 st.title("MLBB Pro-Scene Analytics Dashboard")
+st.markdown("Welcome! Please select the tournaments you wish to analyze in the sidebar, then click 'Load Data'.")
 
-st.markdown("""
-    Welcome to the Mobile Legends: Bang Bang Analytics Dashboard.
+# --- Session State Initialization ---
+# This ensures that our app's memory is set up correctly
+if 'selected_tournaments' not in st.session_state:
+    st.session_state['selected_tournaments'] = []
+if 'pooled_matches' not in st.session_state:
+    st.session_state['pooled_matches'] = None
+if 'parsed_matches' not in st.session_state:
+    st.session_state['parsed_matches'] = None
 
-    **This tool provides in-depth analysis of professional tournament data.**
+# --- Sidebar for Tournament Selection ---
+with st.sidebar:
+    st.header("Tournament Selection")
 
-    ### How to Get Started:
-    1.  **Select an Analysis Mode** from the sidebar on the left.
-    2.  **Choose one or more tournaments** to analyze.
-    3.  The results will be displayed on the selected page.
+    selected_tournaments = st.multiselect(
+        "Choose tournaments:",
+        options=list(ALL_TOURNAMENTS.keys()),
+        default=st.session_state['selected_tournaments'],
+        placeholder="Select one or more tournaments"
+    )
 
-    ---
-""")
+    if st.button("Load Data", type="primary"):
+        if not selected_tournaments:
+            st.warning("Please select at least one tournament.")
+        else:
+            st.session_state['selected_tournaments'] = selected_tournaments
+            all_matches_raw = []
+            
+            with st.spinner("Fetching data from Liquipedia API..."):
+                for name in selected_tournaments:
+                    tournament_path = ALL_TOURNAMENTS[name]['path']
+                    matches = fetch_tournament_matches(tournament_path)
+                    all_matches_raw.extend(matches)
+            
+            if all_matches_raw:
+                st.session_state['pooled_matches'] = all_matches_raw
+                st.session_state['parsed_matches'] = parse_matches(all_matches_raw)
+                st.success(f"Successfully loaded and parsed data for {len(selected_tournaments)} tournament(s).")
+                st.info("You can now navigate to an analysis page.")
+            else:
+                st.error("Failed to load any match data. Please check the API status or your selection.")
 
-st.info("Please select an analysis mode from the sidebar to begin.", icon="👈")
+# --- Display loaded data status ---
+if st.session_state.get('parsed_matches'):
+    st.success(f"**Data Loaded:** {len(st.session_state['parsed_matches'])} matches from {len(st.session_state['selected_tournaments'])} tournament(s).")
+    st.write("Navigate to a page in the sidebar to view the analysis.")
