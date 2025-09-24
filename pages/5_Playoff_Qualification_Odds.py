@@ -121,8 +121,7 @@ def single_table_dashboard():
         sorted_weeks = sorted(matches_by_week.keys())
         for i, week_idx in enumerate(sorted_weeks):
             week_label = f"Week {week_idx + 1} ({week_blocks[week_idx][0]} to {week_blocks[week_idx][-1]})"
-            is_first_week = (i == 0)
-            with st.expander(week_label, expanded=is_first_week):
+            with st.expander(week_label, expanded=False):
                 for m in sorted(matches_by_week[week_idx], key=lambda x: x['date']):
                     teamA, teamB, date, bo = m["teamA"], m["teamB"], m["date"], m["bestof"]
                     match_key, options = (teamA, teamB, date), get_series_outcome_options(teamA, teamB, bo)
