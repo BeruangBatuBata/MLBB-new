@@ -45,37 +45,77 @@ def fetch_live_tournament_matches(tournament_path):
         print(f"API Error fetching {tournament_path}: {e}")
         return []
 
-# --- NEW MASTER DATA LOADER ---
+# --- UNIFIED, CACHED API FETCHER ---
+@st.cache_data(ttl=3600) # Cache live data for 1 hour
+def fetch_from_api(tournament_path):
+    """
+    This is now the ONLY function that talks to the Liquipedia API.
+    It's cached to protect against repeated calls for live data.
+    """
+    try:
+        params = BASE_PARAMS.copy()
+        params['conditions'] = f"[[parent::{tournament_path}]]"
+        url = "https://api.liquipedia.net/api/v3/match"
+        resp = requests.get(url, headers=HEADERS, params=params)
+        resp.raise_for_status()
+        return resp.json().get("result", [])
+    except Exception as e:
+        print(f"API Error fetching {tournament_path}: {e}")
+        # Return the error message to be displayed in the UI
+        return {'error': str(e)}
+
+# --- NEW MASTER DATA LOADER with Fetch-and-Save Logic ---
 def load_tournament_data(tournament_name):
     """
     Decides whether to load data from a local file (archived) or fetch from API (live).
+    If an archived file is not found, it fetches and saves it.
     """
     tournament_info = ALL_TOURNAMENTS[tournament_name]
     is_live = tournament_info.get('live', False)
+    path = tournament_info['path']
     
+    # Create a filename-safe version of the tournament name
+    filename = f"{tournament_name.replace(' ', '_').replace('/', '_')}.json"
+    data_dir = "data"
+    filepath = os.path.join(data_dir, filename)
+
+    # Ensure the 'data' directory exists
+    os.makedirs(data_dir, exist_ok=True)
+
     if not is_live:
-        # --- STRATEGY 1: Load from local file ---
-        # Create a filename-safe version of the tournament name
-        filename = f"{tournament_name.replace(' ', '_').replace('/', '_')}.json"
-        filepath = os.path.join("data", filename) # Assumes a 'data' folder
-        
+        # --- STRATEGY 1: Try to load from local file first ---
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 st.toast(f"Loaded {len(data)} matches for {tournament_name} from file.", icon="📄")
                 return data
         except FileNotFoundError:
-            st.warning(f"Archived data file not found for {tournament_name}. Expected at: {filepath}")
-            # Optional: You could fetch and save it here the first time.
-            return []
+            # --- File not found, so we fetch AND save it ---
+            st.toast(f"Local file for {tournament_name} not found. Fetching from API...", icon="☁️")
+            data = fetch_from_api(path)
+            
+            if isinstance(data, dict) and 'error' in data:
+                st.error(f"Failed to fetch {tournament_name}: {data['error']}")
+                return []
+            
+            # Save the fetched data to a file for next time
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4)
+                st.toast(f"Saved API data for {tournament_name} locally.", icon="💾")
+            except Exception as e:
+                st.warning(f"Could not save data for {tournament_name}: {e}")
+            return data
         except Exception as e:
             st.error(f"Error reading local file for {tournament_name}: {e}")
             return []
             
     else:
-        # --- STRATEGY 2: Fetch live data with Streamlit cache ---
-        path = tournament_info['path']
-        data = fetch_live_tournament_matches(path)
-        if data:
-            st.toast(f"Fetched {len(data)} live matches for {tournament_name} from API.", icon="📡")
+        # --- STRATEGY 2: Fetch live data using the cached function ---
+        data = fetch_from_api(path)
+        if isinstance(data, dict) and 'error' in data:
+            st.error(f"Failed to fetch live data for {tournament_name}: {data['error']}")
+            return []
+
+        st.toast(f"Fetched {len(data)} live matches for {tournament_name} from API.", icon="📡")
         return data
