@@ -1,7 +1,43 @@
 import pandas as pd
 import random
+import json
+import os
 from collections import defaultdict
 
+# --- BRACKET CONFIGURATION FUNCTIONS (Restored from Notebook) ---
+def get_bracket_cache_key(tournament_name):
+    """Generate a unique filename for a tournament's bracket config."""
+    return f".playoff_config_{tournament_name.replace(' ', '_')}.json"
+
+def load_bracket_config(tournament_name):
+    """Load a saved bracket configuration from a local JSON file."""
+    cache_file = get_bracket_cache_key(tournament_name)
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Return a default configuration if none is found
+    return {
+        "brackets": [
+            {"start": 1, "end": 2, "name": "Top 2 Seed", "color": "#4CAF50"},
+            {"start": 3, "end": 6, "name": "Playoff (3-6)", "color": "#2196F3"},
+            {"start": 7, "end": None, "name": "Unqualified", "color": "#f44336"}
+        ]
+    }
+
+def save_bracket_config(tournament_name, config):
+    """Save a bracket configuration to a local JSON file."""
+    cache_file = get_bracket_cache_key(tournament_name)
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump(config, f)
+        return True
+    except Exception:
+        return False
+
+# --- SERIES OUTCOME HELPER (Unchanged) ---
 def get_series_outcome_options(teamA, teamB, bo:int):
     """Generates the possible outcomes for a best-of series."""
     opts=[("Random","random")]
