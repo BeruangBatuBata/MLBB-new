@@ -32,7 +32,7 @@ ALL_TOURNAMENTS = {
 def fetch_tournament_matches(tournament_path):
     """
     Load match data from Liquipedia API using tournament path.
-    This function is cached by Streamlit to avoid re-fetching data.
+    This is a "pure" function that only returns data, without UI side effects.
     """
     try:
         params = BASE_PARAMS.copy()
@@ -40,15 +40,16 @@ def fetch_tournament_matches(tournament_path):
         url = "https://api.liquipedia.net/api/v3/match"
 
         resp = requests.get(url, headers=HEADERS, params=params)
-        resp.raise_for_status() # This will raise an error for bad responses (4xx or 5xx)
+        resp.raise_for_status() # This will raise an error for bad responses
 
         matches = resp.json().get("result", [])
-        st.toast(f"Loaded {len(matches)} matches for {tournament_path}", icon="✅")
+        # The st.toast and st.error calls have been removed from here.
         return matches
 
     except requests.exceptions.RequestException as e:
-        st.error(f"API Error fetching {tournament_path}: {e}")
-        return []
+        # Instead of st.error, we can log to the console for debugging
+        print(f"API Error fetching {tournament_path}: {e}")
+        return [] # Return an empty list on failure
     except Exception as e:
-        st.error(f"An unexpected error occurred for {tournament_path}: {e}")
-        return []
+        print(f"An unexpected error occurred for {tournament_path}: {e}")
+        return [] # Return an empty list on failure
