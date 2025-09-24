@@ -36,14 +36,21 @@ with st.sidebar:
     )
 
     if st.button("Load Data", type="primary"):
-        if not selected_tournaments:
-            st.warning("Please select at least one tournament.")
-        else:
-            st.session_state['selected_tournaments'] = selected_tournaments
-            all_matches_raw = []
-            
-            with st.spinner("Fetching data from Liquipedia API..."):
-                for name in selected_tournaments:
+    if not selected_tournaments:
+        st.warning("Please select at least one tournament.")
+    else:
+        # --- ADD THESE TWO LINES TO RESET THE DATA ---
+        st.session_state['pooled_matches'] = []
+        st.session_state['parsed_matches'] = None
+        # --- END OF ADDITION ---
+        
+        st.session_state['selected_tournaments'] = selected_tournaments
+        all_matches_raw = []
+        has_errors = False
+        
+        with st.spinner("Fetching data from Liquipedia API..."):
+            # (The rest of the code in this block remains exactly the same)
+            for name in selected_tournaments:
                     tournament_path = ALL_TOURNAMENTS[name]['path']
                     matches = fetch_tournament_matches(tournament_path)
                     all_matches_raw.extend(matches)
