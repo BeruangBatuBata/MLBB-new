@@ -1,6 +1,5 @@
 import streamlit as st
 from collections import OrderedDict
-from utils.api_handler import ALL_TOURNAMENTS, fetch_tournament_matches
 from utils.data_processing import parse_matches
 from utils.api_handler import ALL_TOURNAMENTS, load_tournament_data
 
