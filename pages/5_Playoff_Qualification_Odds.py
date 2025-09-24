@@ -77,23 +77,21 @@ def prepare_and_run_simulation():
         st.session_state.sim_results = df_probs
 
 # --- Data Preparation for UI ---
-regular_season_matches = [m for m in st.session_state.parsed_matches if m.get("is_regular_season", False)]
+all_parsed_matches = st.session_state.parsed_matches
+regular_season_matches = [m for m in all_parsed_matches if m.get("is_regular_season", False)]
 if not regular_season_matches:
-    st.error("No regular season matches found. This feature requires regular season data.")
+    # Fallback 1: Try to find matches that are explicitly NOT playoffs
+    regular_season_matches = [m for m in all_parsed_matches if not m.get("is_playoff", False)]
+if not regular_season_matches:
+    # Fallback 2: If all else fails, show an error
+    st.error("Could not identify any regular season matches in the selected data. This feature requires regular season data to simulate.")
     st.stop()
 
 all_dates = sorted(list(set(m["date"] for m in regular_season_matches)))
-week_blocks = []
-if all_dates:
-    current_block = [all_dates[0]]
-    for i in range(1, len(all_dates)):
-        if (all_dates[i] - all_dates[i-1]).days <= 3:
-            current_block.append(all_dates[i])
-        else:
-            week_blocks.append(current_block)
-            current_block = [all_dates[i]]
-    week_blocks.append(current_block)
-st.session_state.week_blocks = week_blocks
+
+# THE FIX: Call the original helper function we just added
+week_blocks = build_week_blocks(all_dates) 
+st.session_state.week_blocks = week_blocks # Save to session state
 
 
 # --- Sidebar UI Controls ---
