@@ -131,7 +131,7 @@ def group_dashboard():
             for m in sorted(unplayed, key=lambda x: x['date']):
                 teamA, teamB, date, bo = m["teamA"], m["teamB"], m["date"], m["bestof"]
                 match_key, options = (teamA, teamB, date), get_series_outcome_options(teamA, teamB, bo)
-                outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"g_match_{date}_{teamA}")
+                outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"g_match_{date}_{teamA}_{teamB}")
                 forced_outcomes[match_key] = outcome[1]
     current_wins, current_diff = defaultdict(int), defaultdict(int)
     for m in played:
