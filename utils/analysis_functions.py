@@ -1,5 +1,6 @@
 import pandas as pd
 from collections import defaultdict, Counter
+import itertools
 
 def calculate_hero_stats_for_team(pooled_matches, team_filter="All Teams"):
     """
@@ -242,3 +243,105 @@ def process_head_to_head_teams(t1_norm, t2_norm, pooled_matches):
         "t1_bans_df": pd.DataFrame(t1_bans.most_common(8), columns=['Hero', 'Bans']),
         "t2_bans_df": pd.DataFrame(t2_bans.most_common(8), columns=['Hero', 'Bans']),
     }
+
+def analyze_synergy_combos(pooled_matches, team_filter, min_games, top_n, find_anti_synergy=False, focus_hero=None):
+    """Calculates hero pair synergies (or anti-synergies)"""
+    duo_counter = defaultdict(lambda: {"games": 0, "wins": 0})
+
+    for match in pooled_matches:
+        teams_names = [opp.get("name", "").strip() for opp in match.get("match2opponents", [])]
+        for game in match.get("match2games", []):
+            winner = str(game.get("winner", ""))
+            for idx, opp in enumerate(game.get("opponents", [])):
+                team_name = teams_names[idx] if idx < len(teams_names) else ""
+                if team_filter != "All Teams" and team_name != team_filter:
+                    continue
+
+                players = [p["champion"] for p in opp.get("players", []) if isinstance(p, dict) and "champion" in p]
+                for h1, h2 in itertools.combinations(sorted(players), 2):
+                    key = (h1, h2)
+                    duo_counter[key]["games"] += 1
+                    if str(idx + 1) == winner:
+                        duo_counter[key]["wins"] += 1
+
+    rows = []
+    for (h1, h2), stats in duo_counter.items():
+        if stats["games"] >= min_games:
+            if focus_hero and focus_hero not in [h1, h2]:
+                continue
+            rows.append({
+                "Hero 1": h1, "Hero 2": h2,
+                "Games Together": stats["games"],
+                "Wins": stats["wins"],
+                "Win Rate (%)": round(stats["wins"] / stats["games"] * 100, 2)
+            })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    return df.sort_values("Win Rate (%)", ascending=find_anti_synergy).head(top_n)
+
+
+def analyze_counter_combos(pooled_matches, min_games, top_n, team_filter, focus_on_team_picks):
+    """Calculates hero counter matchups."""
+    counter_stats = defaultdict(lambda: {"games": 0, "wins": 0})
+
+    for match in pooled_matches:
+        teams_names = [opp.get("name", "").strip() for opp in match.get("match2opponents", [])]
+        for game in match.get("match2games", []):
+            winner = str(game.get("winner", ""))
+            opponents = game.get("opponents", [])
+            if len(opponents) != 2: continue
+
+            heroes1 = {p["champion"] for p in opponents[0].get("players", []) if isinstance(p, dict) and "champion" in p}
+            heroes2 = {p["champion"] for p in opponents[1].get("players", []) if isinstance(p, dict) and "champion" in p}
+
+            # Determine which team is the focus
+            team1_name = teams_names[0] if len(teams_names) > 0 else ""
+            team2_name = teams_names[1] if len(teams_names) > 1 else ""
+
+            is_team1_focus = (team_filter == team1_name)
+            is_team2_focus = (team_filter == team2_name)
+            
+            # Skip game if team filter is active and the team isn't in this match
+            if team_filter != "All Teams" and not (is_team1_focus or is_team2_focus):
+                continue
+
+            # Perspective 1: Team 1 heroes vs Team 2 heroes
+            ally_heroes, enemy_heroes = heroes1, heroes2
+            win_condition = (winner == "1")
+            
+            if (team_filter == "All Teams") or (is_team1_focus and focus_on_team_picks) or (is_team2_focus and not focus_on_team_picks):
+                for a in ally_heroes:
+                    for e in enemy_heroes:
+                        key = (a, e)
+                        counter_stats[key]["games"] += 1
+                        if win_condition: counter_stats[key]["wins"] += 1
+            
+            # Perspective 2: Team 2 heroes vs Team 1 heroes
+            ally_heroes, enemy_heroes = heroes2, heroes1
+            win_condition = (winner == "2")
+            
+            if (team_filter == "All Teams") or (is_team2_focus and focus_on_team_picks) or (is_team1_focus and not focus_on_team_picks):
+                for a in ally_heroes:
+                    for e in enemy_heroes:
+                        key = (a, e)
+                        counter_stats[key]["games"] += 1
+                        if win_condition: counter_stats[key]["wins"] += 1
+
+    rows = []
+    for (ally, enemy), stats in counter_stats.items():
+        if stats["games"] >= min_games:
+            rows.append({
+                "Ally Hero": ally, "Enemy Hero": enemy,
+                "Games Against": stats["games"],
+                "Wins": stats["wins"],
+                "Win Rate (%)": round(stats["wins"] / stats["games"] * 100, 2)
+            })
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values("Win Rate (%)", ascending=False).head(top_n)
+    return df
+
