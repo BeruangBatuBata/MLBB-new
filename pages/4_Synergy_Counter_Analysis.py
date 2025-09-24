@@ -40,7 +40,9 @@ if analysis_mode in ["Synergy (Best Pairs)", "Anti-Synergy (Worst Pairs)"]:
         df_results = analyze_synergy_combos(pooled_matches, team_filter, min_games, top_n, find_anti, focus_hero)
 
     st.header(f"Top {top_n} {analysis_mode}")
-    st.dataframe(df_results, use_container_width=True)
+    df_display = df_results.reset_index(drop=True)
+    df_display.index += 1 # Add this
+    st.dataframe(df_display, use_container_width=True)
     
     title = f"Win Rate of {'Worst' if find_anti else 'Best'} Hero Duos"
     if focus_hero:
@@ -61,7 +63,9 @@ elif analysis_mode == "Counters":
         df_results = analyze_counter_combos(pooled_matches, min_games, top_n, team_filter, focus_on_team_picks)
 
     st.header(f"Top {top_n} Counter Matchups")
-    st.dataframe(df_results, use_container_width=True)
+    df_display = df_results.reset_index(drop=True)
+    df_display.index += 1 # Add this
+    st.dataframe(df_display, use_container_width=True)
     
     title = f"Win Rate: Ally Hero vs. Enemy Hero"
     if team_filter != "All Teams":
