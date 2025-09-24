@@ -40,9 +40,15 @@ if selected_hero and selected_hero in hero_stats_map:
     hero_data = hero_stats_map[selected_hero]
     
     st.subheader(f"Performance by Team")
-    st.dataframe(hero_data["per_team_df"], use_container_width=True)
-
+    df_team = hero_data["per_team_df"].reset_index(drop=True)
+    # --- ADD THIS LINE ---
+    df_team.index += 1
+    st.dataframe(df_team, use_container_width=True)
+    
     st.subheader(f"Performance Against Opposing Heroes")
-    st.dataframe(hero_data["matchups_df"], use_container_width=True)
+    df_matchups = hero_data["matchups_df"].reset_index(drop=True)
+    # --- ADD THIS LINE ---
+    df_matchups.index += 1
+    st.dataframe(df_matchups, use_container_width=True)
 else:
     st.warning("No data available for the selected hero.")
