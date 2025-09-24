@@ -129,7 +129,22 @@ def group_dashboard():
     cutoff_week_idx = int(cutoff_week_label.split(" ")[1]) - 1
     n_sim = st.sidebar.number_input("Simulations:", 1000, 100000, 10000, 1000, key="group_sim_count")
     brackets = load_bracket_config(tournament_name)['brackets']
-    
+
+    # --- NEW: Group Configuration UI in Sidebar ---
+    with st.sidebar.expander("Configure Groups"):
+        st.write("Edit team assignments for each group.")
+        editable_groups = st.session_state.group_config.get('groups', {})
+        for group_name, group_teams in editable_groups.items():
+            new_teams = st.multiselect(f"Teams in {group_name}", options=teams, default=group_teams, key=f"edit_group_{group_name}")
+            editable_groups[group_name] = new_teams
+        
+        if st.button("Save Group Changes"):
+            st.session_state.group_config['groups'] = editable_groups
+            save_group_config(tournament_name, st.session_state.group_config)
+            st.success("Group configuration updated!")
+            st.cache_data.clear() # Clear cache to reflect new groups
+            st.rerun()
+
     # --- Data Processing ---
     cutoff_dates = set(d for i in range(cutoff_week_idx + 1) for d in week_blocks[i]) if cutoff_week_idx >= 0 else set()
     played = [m for m in regular_season_matches if m["date"] in cutoff_dates and m.get("winner") in ("1", "2")]
@@ -162,10 +177,8 @@ def group_dashboard():
     st.markdown("---")
     st.subheader("Results")
     
-    # --- Restructured Results Display ---
+    # --- Results Display ---
     result_tabs = st.tabs(["Overall"] + sorted(groups.keys()))
-
-    # Overall Tab
     with result_tabs[0]:
         col1, col2 = st.columns(2)
         with col1:
@@ -181,8 +194,6 @@ def group_dashboard():
                     st.write(f"**{group_name}**")
                     group_probs = sim_results[sim_results['Group'] == group_name].drop(columns=['Group'])
                     st.dataframe(group_probs, use_container_width=True, hide_index=True)
-
-    # Individual Group Tabs
     for i, group_name in enumerate(sorted(groups.keys())):
         with result_tabs[i+1]:
             col1, col2 = st.columns(2)
