@@ -281,3 +281,25 @@ def run_monte_carlo_simulation_groups(groups, current_wins, current_diff, unplay
     
     df_probs = pd.DataFrame(prob_data).round(2)
     return df_probs
+
+def load_tournament_format(tournament_name):
+    """Load a saved format choice from a local JSON file."""
+    cache_file = get_format_cache_key(tournament_name)
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r') as f:
+                data = json.load(f)
+                return data.get("format") # e.g., 'single_table' or 'group'
+        except Exception:
+            pass
+    return None
+
+def save_tournament_format(tournament_name, format_choice):
+    """Save a format choice to a local JSON file."""
+    cache_file = get_format_cache_key(tournament_name)
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump({"format": format_choice}, f)
+        return True
+    except Exception:
+        return False
