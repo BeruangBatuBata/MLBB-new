@@ -6,7 +6,8 @@ from utils.simulation import (
     build_standings_table,
     run_monte_carlo_simulation,
     load_bracket_config,
-    save_bracket_config
+    save_bracket_config,
+    build_week_blocks # <-- Add this new function to the import list
 )
 
 st.set_page_config(layout="wide", page_title="Playoff Qualification Odds")
