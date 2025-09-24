@@ -175,26 +175,19 @@ def run_monte_carlo_simulation_groups(groups, current_wins, current_diff, unplay
             sim_diff[winner] += w - l
             sim_diff[loser] += l - w
         
-        # --- THE CORRECTED LOGIC IS HERE ---
-        # Instead of one overall ranking, we rank each group individually.
         for group_name, group_teams in groups.items():
-            # Rank teams only against others in their own group
             ranked_in_group = sorted(group_teams, key=lambda t: (sim_wins[t], sim_diff[t], random.random()), reverse=True)
-            
-            # Apply bracket logic based on the intra-group ranking
             for pos, team in enumerate(ranked_in_group):
                 rank_in_group = pos + 1
                 for bracket in brackets:
                     start = bracket["start"]
-                    # Use a large number for an undefined end rank
                     end = bracket.get("end") or len(group_teams) 
                     if start <= rank_in_group <= end:
                         finish_counter[team][bracket["name"]] += 1
                         break
     
-    # --- END OF CORRECTED LOGIC ---
-
-    prob_data = []
+    # --- THIS IS THE CORRECTED SECTION ---
+    prob_data = [] # The list is correctly named 'prob_data'
     for t in teams:
         row = {"Team": t}
         for g_name, g_teams in groups.items():
@@ -203,6 +196,7 @@ def run_monte_carlo_simulation_groups(groups, current_wins, current_diff, unplay
                 break
         for bracket in brackets:
             row[f"{bracket['name']} (%)"] = (finish_counter[t][bracket["name"]] / n_sim) * 100
-        rows.append(row)
+        prob_data.append(row) # We correctly append to 'prob_data'
         
-    return pd.DataFrame(rows).round(2)
+    return pd.DataFrame(prob_data).round(2) # We correctly use 'prob_data' to create the DataFrame
+    # --- END OF CORRECTION ---
