@@ -23,14 +23,13 @@ if 'parsed_matches' not in st.session_state or not st.session_state['parsed_matc
 @st.cache_data(show_spinner="Running Monte Carlo simulations...")
 def cached_run_simulation(teams, played_matches, unplayed_matches, forced_outcomes, brackets, n_sim):
     """
-    This is now the pure, cached calculation engine.
-    It takes the lists of matches directly and does all calculations inside.
-    Its cache is keyed by the state of all its inputs.
+    This is the pure, cached calculation engine.
+    It takes lists of matches and does all calculations inside.
     """
-    # 1. Calculate current standings from played matches
     current_wins = defaultdict(int)
     current_diff = defaultdict(int)
-    for m in played_matches:
+    for m_str in played_matches:
+        m = eval(m_str) # Convert string back to dict
         if m["winner"] in ("1", "2"):
             winner_idx = int(m["winner"]) - 1
             teams_in_match = [m["teamA"], m["teamB"]]
@@ -41,10 +40,8 @@ def cached_run_simulation(teams, played_matches, unplayed_matches, forced_outcom
             current_diff[winner] += score_winner - score_loser
             current_diff[loser] += score_loser - score_winner
             
-    # 2. Prepare unplayed matches for simulation
-    unplayed_tuples = [(m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed_matches]
+    unplayed_tuples = [eval(m_str) for m_str in unplayed_matches]
 
-    # 3. Run the simulation from the utils file
     df_probs = run_monte_carlo_simulation(
         list(teams), dict(current_wins), dict(current_diff),
         unplayed_tuples, dict(forced_outcomes),
@@ -83,10 +80,21 @@ n_simulations = st.sidebar.number_input("Number of Simulations:", 1000, 100000, 
 # Load brackets
 brackets = load_bracket_config(tournament_name)['brackets']
 
-# 3. Determine played vs. unplayed matches based on slider
+# 3. *** THE DEFINITIVE FIX IS HERE ***
+# Determine played vs. unplayed matches with correct logic
 cutoff_dates = set(d for i in range(cutoff_week_idx + 1) for d in week_blocks[i]) if cutoff_week_idx >= 0 else set()
-played_matches = tuple(m for m in regular_season_matches if m["date"] in cutoff_dates)
-unplayed_matches = tuple(m for m in regular_season_matches if m["date"] not in cutoff_dates)
+played_matches = []
+unplayed_matches = []
+for m in regular_season_matches:
+    is_before_cutoff = m["date"] in cutoff_dates
+    has_winner = m.get("winner") in ("1", "2")
+
+    if is_before_cutoff and has_winner:
+        played_matches.append(m)
+    else:
+        # A match is unplayed if it's after the cutoff, OR before the cutoff but has no winner yet.
+        unplayed_matches.append(m)
+
 
 # 4. Render "What-If" UI and gather forced outcomes
 st.subheader("Upcoming Matches (What-If Scenarios)")
@@ -102,14 +110,19 @@ with st.expander("Set specific outcomes for upcoming matches", expanded=True):
             outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"match_{date}_{teamA}")
             forced_outcomes[match_key] = outcome[1]
 
-# 5. Call the cached simulation function with all current state as inputs
-# Using tuples makes the inputs hashable and ensures the cache works correctly.
+# 5. Call the cached simulation function
+# To make complex objects hashable for the cache, we convert them to tuples of strings/simple types
+played_matches_tuple = tuple(str(m) for m in played_matches)
+unplayed_matches_tuples = tuple( (m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed_matches)
+forced_outcomes_tuple = tuple(sorted(forced_outcomes.items()))
+brackets_tuple = tuple(frozenset(b.items()) for b in brackets)
+
 sim_results = cached_run_simulation(
     teams,
-    played_matches,
-    unplayed_matches,
-    tuple(sorted(forced_outcomes.items())),
-    tuple(frozenset(b.items()) for b in brackets),
+    played_matches_tuple,
+    unplayed_matches_tuples,
+    forced_outcomes_tuple,
+    brackets_tuple,
     n_simulations
 )
 
@@ -120,22 +133,21 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.write("**Current Standings** (as of selected cutoff week)")
-    standings_df = build_standings_table(list(teams), list(played_matches))
+    standings_df = build_standings_table(list(teams), played_matches)
     st.dataframe(standings_df, use_container_width=True)
 
 with col2:
     st.write("**Playoff Qualification Probabilities**")
     if sim_results is not None and not sim_results.empty:
         try:
-            # Ensure standings_df has a 'Team' column before trying to use it
-            if 'Team' in standings_df.columns:
+            if 'Team' in standings_df.columns and not standings_df.empty:
                 sorted_probs_df = sim_results.set_index('Team').loc[standings_df['Team']].reset_index()
                 sorted_probs_df.index += 1
                 st.dataframe(sorted_probs_df, use_container_width=True)
             else:
-                st.dataframe(sim_results) # Fallback if standings are empty
+                st.dataframe(sim_results)
         except (KeyError, ValueError):
-            st.warning("Could not align results with standings. Displaying raw probabilities.")
+            st.warning("Could not align results with standings.")
             st.dataframe(sim_results)
     else:
         st.info("Simulation results will appear here.")
