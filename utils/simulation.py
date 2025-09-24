@@ -14,19 +14,30 @@ def load_bracket_config(tournament_name):
     cache_file = get_bracket_cache_key(tournament_name)
     if os.path.exists(cache_file):
         try:
-            with open(cache_file, 'r') as f: return json.load(f)
-        except Exception: pass
-    return {"brackets": [{"start": 1, "end": 2, "name": "Top 2 Seed"}, {"start": 3, "end": 6, "name": "Playoff (3-6)"}, {"start": 7, "end": None, "name": "Unqualified"}]}
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Return a default configuration if none is found
+    return {
+        "brackets": [
+            {"start": 1, "end": 2, "name": "Top 2 Seed"},
+            {"start": 3, "end": 6, "name": "Playoff (3-6)"},
+            {"start": 7, "end": None, "name": "Unqualified"}
+        ]
+    }
 
 def save_bracket_config(tournament_name, config):
     """Save a bracket configuration to a local JSON file."""
     cache_file = get_bracket_cache_key(tournament_name)
     try:
-        with open(cache_file, 'w') as f: json.dump(config, f)
+        with open(cache_file, 'w') as f:
+            json.dump(config, f)
         return True
-    except Exception: return False
+    except Exception:
+        return False
 
-# --- TOURNAMENT FORMAT CONFIGURATION FUNCTIONS (The Missing Piece) ---
+# --- TOURNAMENT FORMAT CONFIGURATION FUNCTIONS ---
 def get_format_cache_key(tournament_name):
     """Generate a unique filename for a tournament's format choice."""
     return f".tournament_format_{tournament_name.replace(' ', '_')}.json"
@@ -36,26 +47,57 @@ def load_tournament_format(tournament_name):
     cache_file = get_format_cache_key(tournament_name)
     if os.path.exists(cache_file):
         try:
-            with open(cache_file, 'r') as f: return json.load(f).get("format")
-        except Exception: pass
+            with open(cache_file, 'r') as f:
+                data = json.load(f)
+                return data.get("format")
+        except Exception:
+            pass
     return None
 
 def save_tournament_format(tournament_name, format_choice):
     """Save a format choice to a local JSON file."""
     cache_file = get_format_cache_key(tournament_name)
     try:
-        with open(cache_file, 'w') as f: json.dump({"format": format_choice}, f)
+        with open(cache_file, 'w') as f:
+            json.dump({"format": format_choice}, f)
         return True
-    except Exception: return False
+    except Exception:
+        return False
 
-# --- SERIES OUTCOME HELPER ---
-def get_series_outcome_options(teamA, teamB, bo:int):
-    opts=[("Random","random")]
-    if bo==3: opts+=[(f"{teamA} 2–0","A20"),(f"{teamA} 2–1","A21"),(f"{teamB} 2–1","B21"),(f"{teamB} 2–0","B20")]
+# --- GROUP CONFIGURATION FUNCTIONS (The Missing Piece) ---
+def get_group_cache_key(tournament_name):
+    """Generate a unique filename for a tournament's group config."""
+    return f".group_config_{tournament_name.replace(' ', '_')}.json"
+
+def load_group_config(tournament_name):
+    """Load a saved group configuration from a local JSON file."""
+    cache_file = get_group_cache_key(tournament_name)
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+def save_group_config(tournament_name, config):
+    """Save a group configuration to a local JSON file."""
+    cache_file = get_group_cache_key(tournament_name)
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump(config, f)
+        return True
+    except Exception:
+        return False
+
+# --- HELPER FUNCTIONS ---
+def get_series_outcome_options(teamA, teamB, bo: int):
+    opts = [("Random", "random")]
+    if bo == 3:
+        opts += [(f"{teamA} 2–0", "A20"), (f"{teamA} 2–1", "A21"), (f"{teamB} 2–1", "B21"), (f"{teamB} 2–0", "B20")]
     # Add other bo formats if necessary
     return opts
 
-# --- STANDINGS TABLE BUILDER ---
 def build_standings_table(teams, played_matches):
     stats = {team: {'match_wins': 0, 'match_count': 0, 'game_wins': 0, 'game_losses': 0} for team in teams}
     for m in played_matches:
@@ -68,19 +110,18 @@ def build_standings_table(teams, played_matches):
             elif m["winner"] == "2": stats[team_b]['match_wins'] += 1
     rows = []
     for team, data in stats.items():
-        mw = data['match_wins']; ml = data['match_count'] - mw; gw = data['game_wins']; gl = data['game_losses']; diff = gw - gl
+        mw, ml, gw, gl, diff = data['match_wins'], data['match_count'] - data['match_wins'], data['game_wins'], data['game_losses'], data['game_wins'] - data['game_losses']
         rows.append({"Team": team, "Match W-L": f"{mw}-{ml}", "Game W-L": f"{gw}-{gl}", "Diff": diff, "_MW": mw, "_Diff": diff})
     if not rows: return pd.DataFrame()
     df = pd.DataFrame(rows).sort_values(by=["_MW", "_Diff"], ascending=[False, False]).reset_index(drop=True)
     df = df.drop(columns=["_MW", "_Diff"]); df.index += 1
     return df
 
-# --- WEEK BLOCKS HELPER ---
 def build_week_blocks(dates):
     if not dates: return []
-    blocks=[[dates[0]]]
-    for prev,curr in zip(dates,dates[1:]):
-        if (curr-prev).days <= 2: blocks[-1].append(curr)
+    blocks = [[dates[0]]]
+    for prev, curr in zip(dates, dates[1:]):
+        if (curr - prev).days <= 2: blocks[-1].append(curr)
         else: blocks.append([curr])
     return blocks
 
@@ -100,7 +141,7 @@ def run_monte_carlo_simulation(teams, current_wins, current_diff, unplayed_match
         for pos, t in enumerate(ranked):
             rank = pos + 1
             for bracket in brackets:
-                start, end = bracket["start"], bracket["end"] or len(teams)
+                start, end = bracket["start"], bracket.get("end") or len(teams)
                 if start <= rank <= end: finish_counter[t][bracket["name"]] += 1; break
     rows = []
     for t in teams:
@@ -125,7 +166,7 @@ def run_monte_carlo_simulation_groups(groups, current_wins, current_diff, unplay
         for pos, team in enumerate(overall_ranked):
             rank = pos + 1
             for bracket in brackets:
-                start, end = bracket["start"], bracket["end"] or len(teams)
+                start, end = bracket["start"], bracket.get("end") or len(teams)
                 if start <= rank <= end: finish_counter[team][bracket["name"]] += 1; break
     rows = []
     for t in teams:
