@@ -35,7 +35,7 @@ with st.sidebar:
         placeholder="Select one or more tournaments"
     )
 
-    if st.button("Load Data", type="primary"):
+if st.button("Load Data", type="primary"):
     if not selected_tournaments:
         st.warning("Please select at least one tournament.")
     else:
@@ -51,6 +51,7 @@ with st.sidebar:
         with st.spinner("Fetching data from Liquipedia API..."):
             # (The rest of the code in this block remains exactly the same)
             for name in selected_tournaments:
+                #...
                     tournament_path = ALL_TOURNAMENTS[name]['path']
                     matches = fetch_tournament_matches(tournament_path)
                     all_matches_raw.extend(matches)
