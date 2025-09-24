@@ -37,21 +37,23 @@ with st.sidebar:
     )
 
 if st.button("Load Data", type="primary"):
+    # This command clears the cache for functions like get_hero_drilldown_data
     st.cache_data.clear()
 
     if not selected_tournaments:
         st.warning("Please select at least one tournament.")
     else:
-        # --- ADD THIS LINE TO CLEAR OLD SIMULATION RESULTS ---
+        # Reset all session state data to ensure a clean slate
         st.session_state['sim_results'] = None
-        
-        st.session_state['pooled_matches'] = []
+        st.session_state['pooled_matches'] = None
         st.session_state['parsed_matches'] = None
         st.session_state['selected_tournaments'] = selected_tournaments
         
+        # This is the line that was missing, causing the NameError
+        all_matches_raw = []
+        
         with st.spinner("Loading tournament data..."):
             for name in selected_tournaments:
-                # Call our new master function!
                 matches = load_tournament_data(name)
                 if matches:
                     all_matches_raw.extend(matches)
