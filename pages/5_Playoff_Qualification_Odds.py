@@ -29,28 +29,12 @@ teams = sorted(list(set(m["teamA"] for m in regular_season_matches) | set(m["tea
 
 # --- Cached Simulation Functions ---
 @st.cache_data(show_spinner="Running single-table simulation...")
-def cached_single_table_sim(teams, played_matches_tuple, unplayed_tuples, forced_outcomes_tuple, brackets_tuple, n_sim):
-    played_matches = [eval(m_str) for m_str in played_matches_tuple]
-    wins, diffs = defaultdict(int), defaultdict(int)
-    for m in played_matches:
-        winner_idx = int(m["winner"]) - 1
-        teams_in_match = [m["teamA"], m["teamB"]]; winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
-        wins[winner] += 1
-        s_w, s_l = (m["scoreA"], m["scoreB"]) if winner_idx == 0 else (m["scoreB"], m["scoreA"])
-        diffs[winner] += s_w - s_l; diffs[loser] += s_l - s_w
-    return run_monte_carlo_simulation(list(teams), dict(wins), dict(diffs), list(unplayed_tuples), dict(forced_outcomes_tuple), [dict(b) for b in brackets_tuple], n_sim)
+def cached_single_table_sim(teams, current_wins, current_diff, unplayed_matches, forced_outcomes, brackets, n_sim):
+    return run_monte_carlo_simulation(list(teams), dict(current_wins), dict(current_diff), list(unplayed_matches), dict(forced_outcomes), [dict(b) for b in brackets], n_sim)
 
 @st.cache_data(show_spinner="Running group stage simulation...")
-def cached_group_sim(groups, played_matches_tuple, unplayed_tuples, forced_outcomes_tuple, brackets_tuple, n_sim):
-    played_matches = [eval(m_str) for m_str in played_matches_tuple]
-    wins, diffs = defaultdict(int), defaultdict(int)
-    for m in played_matches:
-        winner_idx = int(m["winner"]) - 1
-        teams_in_match = [m["teamA"], m["teamB"]]; winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
-        wins[winner] += 1
-        s_w, s_l = (m["scoreA"], m["scoreB"]) if winner_idx == 0 else (m["scoreB"], m["scoreA"])
-        diffs[winner] += s_w - s_l; diffs[loser] += s_l - s_w
-    return run_monte_carlo_simulation_groups(groups, dict(wins), dict(diffs), list(unplayed_tuples), dict(forced_outcomes_tuple), [dict(b) for b in brackets_tuple], n_sim)
+def cached_group_sim(groups, current_wins, current_diff, unplayed_matches, forced_outcomes, brackets, n_sim):
+    return run_monte_carlo_simulation_groups(groups, dict(wins), dict(diffs), list(unplayed_matches), dict(forced_outcomes), [dict(b) for b in brackets], n_sim)
 
 # --- UI Functions ---
 def group_setup_ui():
@@ -91,15 +75,8 @@ def single_table_dashboard():
     with st.sidebar.expander("Configure Playoff Brackets"):
         editable_brackets = [b.copy() for b in st.session_state.current_brackets]
         for i, bracket in enumerate(editable_brackets):
-            # THIS IS THE CORRECTED, READABLE VERSION OF THE BROKEN LINE
-            cols = st.columns([4, 2, 2, 1])
-            bracket['name'] = cols[0].text_input("Name", bracket['name'], key=f"s_name_{i}")
-            bracket['start'] = cols[1].number_input("Start", bracket['start'], min_value=1, key=f"s_start_{i}")
-            end_val = bracket['end'] or len(teams)
-            bracket['end'] = cols[2].number_input("End", end_val, min_value=bracket['start'], key=f"s_end_{i}")
-            if cols[3].button("🗑️", key=f"s_del_{i}"):
-                st.session_state.current_brackets.pop(i)
-                st.rerun()
+            cols = st.columns([4, 2, 2, 1]); bracket['name'] = cols[0].text_input("Name", bracket['name'], key=f"s_name_{i}"); bracket['start'] = cols[1].number_input("Start", bracket['start'], min_value=1, key=f"s_start_{i}"); end_val = bracket['end'] or len(teams); bracket['end'] = cols[2].number_input("End", end_val, min_value=bracket['start'], key=f"s_end_{i}")
+            if cols[3].button("🗑️", key=f"s_del_{i}"): st.session_state.current_brackets.pop(i); st.rerun()
         st.session_state.current_brackets = editable_brackets
         if st.button("Save Brackets", type="primary"): save_bracket_config(tournament_name, {"brackets": st.session_state.current_brackets}); st.success("Brackets saved!"); st.cache_data.clear()
     cutoff_dates = set(d for i in range(cutoff_week_idx + 1) for d in week_blocks[i]) if cutoff_week_idx >= 0 else set()
@@ -113,7 +90,15 @@ def single_table_dashboard():
                 match_key, options = (teamA, teamB, date), get_series_outcome_options(teamA, teamB, bo)
                 outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"s_match_{date}_{teamA}")
                 forced_outcomes[match_key] = outcome[1]
-    sim_results = cached_single_table_sim(tuple(teams), tuple(str(m) for m in played), tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed), tuple(sorted(forced_outcomes.items())), tuple(frozenset(b.items()) for b in st.session_state.current_brackets), n_sim)
+    
+    current_wins, current_diff = defaultdict(int), defaultdict(int)
+    for m in played:
+        winner_idx = int(m["winner"]) - 1; teams_in_match = [m["teamA"], m["teamB"]]; winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
+        current_wins[winner] += 1; s_w, s_l = (m["scoreA"], m["scoreB"]) if winner_idx == 0 else (m["scoreB"], m["scoreA"])
+        current_diff[winner] += s_w - s_l; current_diff[loser] += s_l - s_w
+    
+    sim_results = cached_single_table_sim(tuple(teams), tuple(sorted(current_wins.items())), tuple(sorted(current_diff.items())), tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed), tuple(sorted(forced_outcomes.items())), tuple(frozenset(b.items()) for b in st.session_state.current_brackets), n_sim)
+    
     st.markdown("---"); st.subheader("Results"); col1, col2 = st.columns(2)
     with col1:
         st.write("**Current Standings**"); standings_df = build_standings_table(teams, played)
@@ -144,7 +129,15 @@ def group_dashboard():
                 match_key, options = (teamA, teamB, date), get_series_outcome_options(teamA, teamB, bo)
                 outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"g_match_{date}_{teamA}")
                 forced_outcomes[match_key] = outcome[1]
-    sim_results = cached_group_sim(groups, tuple(str(m) for m in played), tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed), tuple(sorted(forced_outcomes.items())), tuple(frozenset(b.items()) for b in brackets), n_sim)
+    
+    current_wins, current_diff = defaultdict(int), defaultdict(int)
+    for m in played:
+        winner_idx = int(m["winner"]) - 1; teams_in_match = [m["teamA"], m["teamB"]]; winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
+        current_wins[winner] += 1; s_w, s_l = (m["scoreA"], m["scoreB"]) if winner_idx == 0 else (m["scoreB"], m["scoreA"])
+        current_diff[winner] += s_w - s_l; current_diff[loser] += s_l - s_w
+
+    sim_results = cached_group_sim(groups, tuple(sorted(current_wins.items())), tuple(sorted(current_diff.items())), tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed), tuple(sorted(forced_outcomes.items())), tuple(frozenset(b.items()) for b in brackets), n_sim)
+    
     st.markdown("---"); st.subheader("Results")
     tab1, tab2 = st.tabs(["Current Standings", "Playoff Probabilities"])
     with tab1:
