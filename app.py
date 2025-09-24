@@ -37,13 +37,17 @@ with st.sidebar:
     )
 
 if st.button("Load Data", type="primary"):
-    st.cache_data.clear() # Clear cache to ensure live data is re-fetched if needed
+    st.cache_data.clear()
 
     if not selected_tournaments:
         st.warning("Please select at least one tournament.")
     else:
+        # --- ADD THIS LINE TO CLEAR OLD SIMULATION RESULTS ---
+        st.session_state['sim_results'] = None
+        
+        st.session_state['pooled_matches'] = []
+        st.session_state['parsed_matches'] = None
         st.session_state['selected_tournaments'] = selected_tournaments
-        all_matches_raw = []
         
         with st.spinner("Loading tournament data..."):
             for name in selected_tournaments:
