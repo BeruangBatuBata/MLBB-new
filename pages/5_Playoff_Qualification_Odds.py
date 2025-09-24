@@ -7,7 +7,7 @@ from utils.simulation import (
     run_monte_carlo_simulation,
     load_bracket_config,
     save_bracket_config,
-    build_week_blocks # <-- Add this new function to the import list
+    build_week_blocks
 )
 
 st.set_page_config(layout="wide", page_title="Playoff Qualification Odds")
@@ -24,115 +24,60 @@ if 'sim_results' not in st.session_state:
     st.session_state.sim_results = None
 if 'forced_outcomes' not in st.session_state:
     st.session_state.forced_outcomes = {}
+# Track which week the last simulation was run for
+if 'sim_week_idx' not in st.session_state:
+    st.session_state.sim_week_idx = -1
 
-# Use the first selected tournament as the context for this page
 tournament_name = st.session_state.selected_tournaments[0]
 if 'current_brackets' not in st.session_state or st.session_state.get('bracket_tournament') != tournament_name:
     st.session_state.current_brackets = load_bracket_config(tournament_name)['brackets']
     st.session_state.bracket_tournament = tournament_name
 
-
-# --- Core Logic in a Callback Function ---
-def prepare_and_run_simulation():
-    """
-    This function is called when the button is clicked. It prepares all data
-    based on the CURRENT state of the UI widgets and runs the simulation.
-    """
-    # 1. Filter for regular season matches
-    all_parsed = st.session_state.parsed_matches
-    regular_season = [m for m in all_parsed if m.get("is_regular_season", False)]
-    teams = sorted(list(set(m["teamA"] for m in regular_season) | set(m["teamB"] for m in regular_season)))
-    
-    # 2. Determine played vs unplayed based on slider
-    cutoff_idx = st.session_state.cutoff_week_idx
-    week_blocks = st.session_state.week_blocks
-    
-    played, unplayed = [], []
-    cutoff_dates = set(d for i in range(cutoff_idx + 1) for d in week_blocks[i]) if cutoff_idx >= 0 else set()
-    for m in regular_season:
-        (played if m["date"] in cutoff_dates else unplayed).append(m)
-        
-    # 3. Calculate current standings
-    wins, diffs = defaultdict(int), defaultdict(int)
-    for m in played:
-        if m["winner"] in ("1", "2"):
-            winner_idx = int(m["winner"]) - 1
-            teams_in_match = [m["teamA"], m["teamB"]]
-            winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
-            wins[winner] += 1
-            score_winner = m["scoreA"] if winner_idx == 0 else m["scoreB"]
-            score_loser = m["scoreB"] if winner_idx == 0 else m["scoreA"]
-            diffs[winner] += score_winner - score_loser
-            diffs[loser] += score_loser - score_winner
-            
-    # 4. Run simulation with current data
-    unplayed_tuples = [(m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed]
-    with st.spinner(f"Running {st.session_state.n_simulations} simulations..."):
-        df_probs = run_monte_carlo_simulation(
-            teams, wins, diffs, unplayed_tuples, 
-            st.session_state.forced_outcomes, 
-            st.session_state.current_brackets, 
-            st.session_state.n_simulations
-        )
-        st.session_state.sim_results = df_probs
-
-# --- Data Preparation for UI ---
-all_parsed_matches = st.session_state.parsed_matches
-regular_season_matches = [m for m in all_parsed_matches if m.get("is_regular_season", False)]
+# --- Data Preparation (runs on every interaction) ---
+regular_season_matches = [m for m in st.session_state.parsed_matches if m.get("is_regular_season", False)]
 if not regular_season_matches:
-    # Fallback 1: Try to find matches that are explicitly NOT playoffs
-    regular_season_matches = [m for m in all_parsed_matches if not m.get("is_playoff", False)]
-if not regular_season_matches:
-    # Fallback 2: If all else fails, show an error
-    st.error("Could not identify any regular season matches in the selected data. This feature requires regular season data to simulate.")
+    st.error("No regular season matches found. This feature requires regular season data.")
     st.stop()
 
+teams = sorted(list(set(m["teamA"] for m in regular_season_matches) | set(m["teamB"] for m in regular_season_matches)))
 all_dates = sorted(list(set(m["date"] for m in regular_season_matches)))
-
-# THE FIX: Call the original helper function we just added
-week_blocks = build_week_blocks(all_dates) 
-st.session_state.week_blocks = week_blocks # Save to session state
-
+week_blocks = build_week_blocks(all_dates)
 
 # --- Sidebar UI Controls ---
 st.sidebar.header("Simulation Controls")
 week_options = {f"Week {i+1} ({wk[0]} to {wk[-1]})": i for i, wk in enumerate(week_blocks)}
 week_options["Pre-Season (Week 0)"] = -1
 sorted_week_options = sorted(week_options.items(), key=lambda item: item[1])
+
 cutoff_week_label = st.sidebar.select_slider(
     "Select Cutoff Week:",
     options=[opt[0] for opt in sorted_week_options],
     value=sorted_week_options[-1][0]
 )
-# Store the index in session state so the callback can access it
-st.session_state.cutoff_week_idx = week_options[cutoff_week_label]
-st.session_state.n_simulations = st.sidebar.number_input("Number of Simulations:", 1000, 100000, 10000, 1000)
-
-st.sidebar.button("Run Monte Carlo Simulation", type="primary", on_click=prepare_and_run_simulation)
+cutoff_week_idx = week_options[cutoff_week_label]
+n_simulations = st.sidebar.number_input("Number of Simulations:", 1000, 100000, 10000, 1000)
+run_simulation_button = st.sidebar.button("Run Monte Carlo Simulation", type="primary")
 
 # --- Bracket Configuration UI ---
 st.sidebar.subheader("Tournament Format")
 with st.sidebar.expander("Configure Playoff Brackets"):
-    # This UI now directly modifies the session state
     for i, bracket in enumerate(st.session_state.current_brackets):
         cols = st.columns([3, 1, 1])
         bracket['name'] = cols[0].text_input("Bracket Name", value=bracket['name'], key=f"name_{i}")
         bracket['start'] = cols[1].number_input("Start Rank", min_value=1, value=bracket['start'], key=f"start_{i}")
-        end_val = bracket['end'] if bracket['end'] is not None else len(set(m["teamA"] for m in regular_season_matches) | set(m["teamB"] for m in regular_season_matches))
+        end_val = bracket['end'] if bracket['end'] is not None else len(teams)
         bracket['end'] = cols[2].number_input("End Rank", min_value=bracket['start'], value=end_val, key=f"end_{i}")
     
     if st.button("Save Brackets"):
         save_bracket_config(tournament_name, {"brackets": st.session_state.current_brackets})
         st.success("Brackets saved!")
 
-
-# --- "What-If" and Display Section ---
-# This part of the UI now just READS from the state calculated by the slider
-cutoff_idx = st.session_state.cutoff_week_idx
-cutoff_dates = set(d for i in range(cutoff_idx + 1) for d in week_blocks[i]) if cutoff_idx >= 0 else set()
+# --- Data Processing based on CURRENT slider value ---
+cutoff_dates = set(d for i in range(cutoff_week_idx + 1) for d in week_blocks[i]) if cutoff_week_idx >= 0 else set()
 played = [m for m in regular_season_matches if m["date"] in cutoff_dates]
 unplayed = [m for m in regular_season_matches if m["date"] not in cutoff_dates]
 
+# --- "What-If" Scenarios UI ---
 st.subheader("Upcoming Matches (What-If Scenarios)")
 with st.expander("Set specific outcomes for upcoming matches", expanded=True):
     if not unplayed:
@@ -142,29 +87,58 @@ with st.expander("Set specific outcomes for upcoming matches", expanded=True):
         for teamA, teamB, date, bo in unplayed_tuples:
             match_key = (teamA, teamB, date)
             options = get_series_outcome_options(teamA, teamB, bo)
-            # Read default from session state, or set to 'random'
             default_index = next((i for i, opt in enumerate(options) if opt[1] == st.session_state.forced_outcomes.get(match_key)), 0)
             outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, index=default_index, format_func=lambda x: x[0], key=f"match_{date}_{teamA}")
             st.session_state.forced_outcomes[match_key] = outcome[1]
 
+# --- Simulation Logic (only runs when button is pressed) ---
+if run_simulation_button:
+    current_wins, current_diff = defaultdict(int), defaultdict(int)
+    for m in played:
+        if m["winner"] in ("1", "2"):
+            winner_idx = int(m["winner"]) - 1
+            teams_in_match = [m["teamA"], m["teamB"]]
+            winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
+            current_wins[winner] += 1
+            score_winner = m["scoreA"] if winner_idx == 0 else m["scoreB"]
+            score_loser = m["scoreB"] if winner_idx == 0 else m["scoreA"]
+            current_diff[winner] += score_winner - score_loser
+            current_diff[loser] += score_loser - score_winner
+
+    unplayed_tuples = [(m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed]
+    with st.spinner(f"Running {n_simulations} simulations..."):
+        df_probs = run_monte_carlo_simulation(
+            teams, current_wins, current_diff, unplayed_tuples, 
+            st.session_state.forced_outcomes, 
+            st.session_state.current_brackets, 
+            n_simulations
+        )
+        st.session_state.sim_results = df_probs
+        # Record the week for which this simulation is valid
+        st.session_state.sim_week_idx = cutoff_week_idx
+
+# --- Display Results ---
 st.markdown("---")
 st.subheader("Results")
+
+# NEW: Add a warning if the slider has been moved since the last simulation
+if st.session_state.sim_results is not None and st.session_state.sim_week_idx != cutoff_week_idx:
+    st.warning("The cutoff week has changed. Please click 'Run Monte Carlo Simulation' again to see updated probabilities.")
+
 col1, col2 = st.columns(2)
 with col1:
-    st.write("**Current Standings**")
-    teams = sorted(list(set(m["teamA"] for m in regular_season_matches) | set(m["teamB"] for m in regular_season_matches)))
+    st.write("**Current Standings** (as of selected cutoff week)")
     standings_df = build_standings_table(teams, played)
     st.dataframe(standings_df, use_container_width=True)
+
 with col2:
     st.write("**Playoff Qualification Probabilities**")
     if st.session_state.sim_results is not None:
         try:
-            # Sort probability table based on current standings for consistency
             sorted_probs_df = st.session_state.sim_results.set_index('Team').loc[standings_df['Team']].reset_index()
             sorted_probs_df.index += 1
             st.dataframe(sorted_probs_df, use_container_width=True)
-        except KeyError:
-            st.warning("Standings and simulation results are out of sync. Please re-run the simulation.")
-            st.dataframe(st.session_state.sim_results)
+        except (KeyError, ValueError):
+            st.error("Standings and simulation results are out of sync. Please re-run the simulation.")
     else:
         st.info("Click 'Run Monte Carlo Simulation' to see probabilities.")
