@@ -4,6 +4,21 @@ import json
 import os
 from collections import defaultdict
 
+
+def build_week_blocks(dates):
+    """(Copied from the original notebook)
+    Groups sorted dates into blocks of consecutive or near-consecutive days.
+    """
+    if not dates: return []
+    blocks=[ [dates[0]] ]
+    for prev,curr in zip(dates,dates[1:]):
+        # Original logic: group days that are 1 day apart
+        if (curr-prev).days<=1: 
+            blocks[-1].append(curr)
+        else: 
+            blocks.append([curr])
+    return blocks
+    
 # --- BRACKET CONFIGURATION FUNCTIONS (Restored from Notebook) ---
 def get_bracket_cache_key(tournament_name):
     """Generate a unique filename for a tournament's bracket config."""
