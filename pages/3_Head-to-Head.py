@@ -57,12 +57,26 @@ else:
         
         with col_picks:
             st.write(f"**Most Picked by {team1}**")
-            st.dataframe(h2h_data["t1_picks_df"], use_container_width=True)
+            t1_picks_df = h2h_data["t1_picks_df"]
+            # --- ADD THIS LINE ---
+            t1_picks_df.index += 1
+            st.dataframe(t1_picks_df, use_container_width=True)
+            
             st.write(f"**Most Picked by {team2}**")
-            st.dataframe(h2h_data["t2_picks_df"], use_container_width=True)
+            t2_picks_df = h2h_data["t2_picks_df"]
+            # --- ADD THIS LINE ---
+            t2_picks_df.index += 1
+            st.dataframe(t2_picks_df, use_container_width=True)
             
         with col_bans:
             st.write(f"**Most Banned by {team1}**")
-            st.dataframe(h2h_data["t1_bans_df"], use_container_width=True)
+            t1_bans_df = h2h_data["t1_bans_df"]
+            # --- ADD THIS LINE ---
+            t1_bans_df.index += 1
+            st.dataframe(t1_bans_df, use_container_width=True)
+            
             st.write(f"**Most Banned by {team2}**")
-            st.dataframe(h2h_data["t2_bans_df"], use_container_width=True)
+            t2_bans_df = h2h_data["t2_bans_df"]
+            # --- ADD THIS LINE ---
+            t2_bans_df.index += 1
+            st.dataframe(t2_bans_df, use_container_width=True)
