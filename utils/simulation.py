@@ -71,33 +71,68 @@ def get_series_outcome_options(teamA, teamB, bo:int):
 
 # --- STANDINGS TABLE BUILDER (Unchanged) ---
 def build_standings_table(teams, played_matches):
-    match_counts={t:0 for t in teams}
-    match_wins={t:0 for t in teams}
-    gwins={t:0 for t in teams}
-    gloss={t:0 for t in teams}
+    """
+    Calculates the current standings based on a list of completed matches.
+    This version is more robust and correctly handles teams with no matches played.
+    """
+    # Initialize stats for all teams in the tournament
+    stats = {
+        team: {'match_wins': 0, 'match_count': 0, 'game_wins': 0, 'game_losses': 0}
+        for team in teams
+    }
+
+    # Iterate through only the matches that have been played up to the cutoff
     for m in played_matches:
-        a,b,wa,wb=m["teamA"],m["teamB"],m["scoreA"],m["scoreB"]
-        if a in teams and b in teams:
-            match_counts[a]+=1; match_counts[b]+=1
-            gwins[a]+=wa; gloss[a]+=wb
-            gwins[b]+=wb; gloss[b]+=wa
-            if m["winner"]=="1": match_wins[a]+=1
-            elif m["winner"]=="2": match_wins[b]+=1
-            
-    standings=[]
-    for t in teams:
-        mw=match_wins[t]; ml=match_counts[t]-mw
-        gw,gl=gwins[t],gloss[t]
-        diff=gw-gl
-        row = {"Team":t,"Match W-L":f"{mw}-{ml}","Game W-L":f"{gw}-{gl}","Diff":diff}
-        standings.append(row)
+        team_a, team_b = m["teamA"], m["teamB"]
+        score_a, score_b = m["scoreA"], m["scoreB"]
+
+        # Ensure both teams are part of the stats dictionary before proceeding
+        if team_a in stats and team_b in stats:
+            # Update match counts
+            stats[team_a]['match_count'] += 1
+            stats[team_b]['match_count'] += 1
+
+            # Update game scores
+            stats[team_a]['game_wins'] += score_a
+            stats[team_a]['game_losses'] += score_b
+            stats[team_b]['game_wins'] += score_b
+            stats[team_b]['game_losses'] += score_a
+
+            # Update match wins
+            if m["winner"] == "1":
+                stats[team_a]['match_wins'] += 1
+            elif m["winner"] == "2":
+                stats[team_b]['match_wins'] += 1
+
+    # Create the final DataFrame from the calculated stats
+    standings_rows = []
+    for team, team_stats in stats.items():
+        match_wins = team_stats['match_wins']
+        match_losses = team_stats['match_count'] - match_wins
+        game_wins = team_stats['game_wins']
+        game_losses = team_stats['game_losses']
+        game_diff = game_wins - game_losses
         
-    df=pd.DataFrame(standings)
-    if not df.empty:
-        df[['MW','ML']] = df['Match W-L'].str.split('-',expand=True).astype(int)
-        df=df.sort_values(by=["MW","Diff"],ascending=[False,False]).reset_index(drop=True)
-        df = df.drop(columns=["MW","ML"])
-        df.index += 1
+        row = {
+            "Team": team,
+            "Match W-L": f"{match_wins}-{match_losses}",
+            "Game W-L": f"{game_wins}-{game_losses}",
+            "Diff": game_diff,
+            # Store raw numbers for sorting
+            "_MW": match_wins,
+            "_Diff": game_diff
+        }
+        standings_rows.append(row)
+
+    if not standings_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(standings_rows)
+    # Sort by Match Wins, then by Game Difference
+    df = df.sort_values(by=["_MW", "_Diff"], ascending=[False, False]).reset_index(drop=True)
+    # Drop the temporary sorting columns
+    df = df.drop(columns=["_MW", "_Diff"])
+    df.index += 1  # Make it 1-indexed for display
     return df
 
 # --- UPGRADED MONTE CARLO SIMULATION ---
