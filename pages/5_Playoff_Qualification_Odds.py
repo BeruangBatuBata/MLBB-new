@@ -19,42 +19,28 @@ if 'parsed_matches' not in st.session_state or not st.session_state['parsed_matc
     st.warning("Please select and load tournament data on the homepage first.")
     st.stop()
 
-# --- Cached Simulation Engine ---
+# --- Cached Simulation Engine (Correctly Designed) ---
 @st.cache_data(show_spinner="Running Monte Carlo simulations...")
-def cached_run_simulation(teams, played_matches, unplayed_matches_tuples, forced_outcomes, brackets, n_sim):
+def cached_run_simulation(teams, current_wins, current_diff, unplayed_matches, forced_outcomes, brackets, n_sim):
     """
-    This is the pure, cached calculation engine. It takes prepared data and returns the results.
+    This is a pure calculation engine. It takes simple, prepared data and
+    returns the simulation results. It no longer uses unsafe str/eval.
     """
-    # 1. Calculate current standings from played matches
-    current_wins = defaultdict(int)
-    current_diff = defaultdict(int)
-    for m in played_matches:
-        if m["winner"] in ("1", "2"):
-            winner_idx = int(m["winner"]) - 1
-            teams_in_match = [m["teamA"], m["teamB"]]
-            winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
-            current_wins[winner] += 1
-            score_winner = m["scoreA"] if winner_idx == 0 else m["scoreB"]
-            score_loser = m["scoreB"] if winner_idx == 0 else m["scoreA"]
-            current_diff[winner] += score_winner - score_loser
-            current_diff[loser] += score_loser - score_winner
-            
-    # 2. Run the simulation from the utils file
     df_probs = run_monte_carlo_simulation(
         list(teams), dict(current_wins), dict(current_diff),
-        list(unplayed_matches_tuples), dict(forced_outcomes),
+        list(unplayed_matches), dict(forced_outcomes),
         [dict(b) for b in brackets], n_sim
     )
     return df_probs
 
-# --- UI AND DATA PREP (Runs on every interaction) ---
+# --- UI AND DATA PREP (This is the main, interactive part of the script) ---
 
 # 1. Prepare base data
 tournament_name = st.session_state.selected_tournaments[0]
 regular_season_matches = [m for m in st.session_state.parsed_matches if m.get("is_regular_season", False)]
 
 if not regular_season_matches:
-    st.error("No regular season matches found. This feature requires regular season data.")
+    st.error("No regular season matches found for this feature.")
     st.stop()
 
 teams = tuple(sorted(list(set(m["teamA"] for m in regular_season_matches) | set(m["teamB"] for m in regular_season_matches))))
@@ -66,21 +52,17 @@ st.sidebar.header("Simulation Controls")
 week_options = {f"Week {i+1} ({wk[0]} to {wk[-1]})": i for i, wk in enumerate(week_blocks)}
 week_options["Pre-Season (Week 0)"] = -1
 sorted_week_options = sorted(week_options.items(), key=lambda item: item[1])
-
-cutoff_week_label = st.sidebar.select_slider(
-    "Select Cutoff Week:",
-    options=[opt[0] for opt in sorted_week_options],
-    value=sorted_week_options[-1][0]
-)
+cutoff_week_label = st.sidebar.select_slider("Select Cutoff Week:", options=[opt[0] for opt in sorted_week_options], value=sorted_week_options[-1][0])
 cutoff_week_idx = week_options[cutoff_week_label]
 n_simulations = st.sidebar.number_input("Number of Simulations:", 1000, 100000, 10000, 1000)
 
-# Load/manage brackets in session state
+# Load/manage brackets
 if 'current_brackets' not in st.session_state or st.session_state.get('bracket_tournament') != tournament_name:
     st.session_state.current_brackets = load_bracket_config(tournament_name)['brackets']
     st.session_state.bracket_tournament = tournament_name
 
-with st.sidebar.expander("Configure Playoff Brackets", expanded=False):
+with st.sidebar.expander("Configure Playoff Brackets"):
+    # ... (Bracket configuration UI - this code is correct and remains the same)
     editable_brackets = [b.copy() for b in st.session_state.current_brackets]
     for i, bracket in enumerate(editable_brackets):
         cols = st.columns([4, 2, 2, 1])
@@ -92,12 +74,12 @@ with st.sidebar.expander("Configure Playoff Brackets", expanded=False):
             st.session_state.current_brackets.pop(i)
             st.rerun()
     st.session_state.current_brackets = editable_brackets
-    if st.button("Save Brackets to File", type="primary"):
+    if st.button("Save Brackets", type="primary"):
         save_bracket_config(tournament_name, {"brackets": st.session_state.current_brackets})
         st.success("Brackets saved!")
         st.cache_data.clear()
 
-# 3. Determine played vs. unplayed matches based on slider and winner status
+# 3. Determine played vs. unplayed matches
 cutoff_dates = set(d for i in range(cutoff_week_idx + 1) for d in week_blocks[i]) if cutoff_week_idx >= 0 else set()
 played_matches = []
 unplayed_matches = []
@@ -117,13 +99,11 @@ for match in unplayed_matches:
             matches_by_week[week_idx].append(match)
             break
 if not matches_by_week:
-    st.info("No upcoming matches to simulate for the selected cutoff week.")
+    st.info("No upcoming matches to simulate.")
 else:
-    sorted_weeks = sorted(matches_by_week.keys())
-    for i, week_idx in enumerate(sorted_weeks):
+    for i, week_idx in enumerate(sorted(matches_by_week.keys())):
         week_label = f"Week {week_idx + 1} ({week_blocks[week_idx][0]} to {week_blocks[week_idx][-1]})"
-        is_first_week = (i == 0)
-        with st.expander(week_label, expanded=is_first_week):
+        with st.expander(week_label, expanded=(i == 0)):
             for m in sorted(matches_by_week[week_idx], key=lambda x: x['date']):
                 teamA, teamB, date, bo = m["teamA"], m["teamB"], m["date"], m["bestof"]
                 match_key = (teamA, teamB, date)
@@ -131,35 +111,45 @@ else:
                 outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"match_{date}_{teamA}")
                 forced_outcomes[match_key] = outcome[1]
 
-# 5. Call the cached simulation with cache-friendly inputs
+# 5. Prepare data inputs for the cached function
+current_wins, current_diff = defaultdict(int), defaultdict(int)
+for m in played_matches:
+    winner_idx = int(m["winner"]) - 1
+    teams_in_match = [m["teamA"], m["teamB"]]
+    winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
+    current_wins[winner] += 1
+    score_winner = m["scoreA"] if winner_idx == 0 else m["scoreB"]
+    score_loser = m["scoreB"] if winner_idx == 0 else m["scoreA"]
+    current_diff[winner] += score_winner - score_loser
+    current_diff[loser] += score_loser - score_winner
+
+# Use cache-friendly tuples of simple types
+unplayed_tuples = tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed_matches)
+forced_outcomes_tuple = tuple(sorted(forced_outcomes.items()))
+brackets_tuple = tuple(frozenset(b.items()) for b in st.session_state.current_brackets)
+current_wins_tuple = tuple(sorted(current_wins.items()))
+current_diff_tuple = tuple(sorted(current_diff.items()))
+
+# 6. Call the cached simulation
 sim_results = cached_run_simulation(
-    teams,
-    tuple(str(m) for m in played_matches),
-    tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed_matches),
-    tuple(sorted(forced_outcomes.items())),
-    tuple(frozenset(b.items()) for b in st.session_state.current_brackets),
-    n_simulations
+    teams, current_wins_tuple, current_diff_tuple,
+    unplayed_tuples, forced_outcomes_tuple, brackets_tuple, n_simulations
 )
 
-# 6. Display results
+# 7. Display results
 st.markdown("---")
 st.subheader("Results")
 col1, col2 = st.columns(2)
-
 with col1:
-    st.write("**Current Standings** (as of selected cutoff week)")
+    st.write("**Current Standings**")
     standings_df = build_standings_table(list(teams), played_matches)
     st.dataframe(standings_df, use_container_width=True)
-
 with col2:
     st.write("**Playoff Qualification Probabilities**")
     if sim_results is not None and not sim_results.empty:
         if 'Team' in standings_df.columns and not standings_df.empty:
-            try:
-                sorted_probs_df = sim_results.set_index('Team').loc[standings_df['Team']].reset_index()
-                sorted_probs_df.index += 1
-                st.dataframe(sorted_probs_df, use_container_width=True)
-            except KeyError:
-                 st.dataframe(sim_results.reset_index(drop=True))
+            sorted_probs_df = sim_results.set_index('Team').loc[standings_df['Team']].reset_index()
+            sorted_probs_df.index += 1
+            st.dataframe(sorted_probs_df, use_container_width=True)
         else:
-            st.dataframe(sim_results.reset_index(drop=True))
+            st.dataframe(sim_results)
