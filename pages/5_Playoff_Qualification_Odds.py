@@ -68,20 +68,45 @@ for m in regular_season_matches:
     else:
         unplayed_matches.append(m)
 
-# 4. Render "What-If" UI
+# 4. Render "What-If" UI and gather forced outcomes
 st.subheader("Upcoming Matches (What-If Scenarios)")
 forced_outcomes = {}
-with st.expander("Set specific outcomes for upcoming matches", expanded=True):
-    if not unplayed_matches:
-        st.write("No upcoming matches to simulate for the selected cutoff week.")
-    else:
-        for m in sorted(unplayed_matches, key=lambda x: x['date']):
-            teamA, teamB, date, bo = m["teamA"], m["teamB"], m["date"], m["bestof"]
-            match_key = (teamA, teamB, date)
-            options = get_series_outcome_options(teamA, teamB, bo)
-            outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"match_{date}_{teamA}")
-            forced_outcomes[match_key] = outcome[1]
 
+# Group unplayed matches by their week index
+matches_by_week = defaultdict(list)
+for match in unplayed_matches:
+    for week_idx, week_dates in enumerate(week_blocks):
+        if match['date'] in week_dates:
+            matches_by_week[week_idx].append(match)
+            break
+
+if not matches_by_week:
+    st.info("No upcoming matches to simulate for the selected cutoff week.")
+else:
+    # Sort weeks chronologically
+    sorted_weeks = sorted(matches_by_week.keys())
+    
+    # Create an expander for each week
+    for i, week_idx in enumerate(sorted_weeks):
+        week_label = f"Week {week_idx + 1} ({week_blocks[week_idx][0]} to {week_blocks[week_idx][-1]})"
+        # The first week is expanded by default, the rest are collapsed
+        is_first_week = (i == 0)
+        
+        with st.expander(week_label, expanded=is_first_week):
+            # Sort matches within the week by date
+            week_matches = sorted(matches_by_week[week_idx], key=lambda x: x['date'])
+            for m in week_matches:
+                teamA, teamB, date, bo = m["teamA"], m["teamB"], m["date"], m["bestof"]
+                match_key = (teamA, teamB, date)
+                options = get_series_outcome_options(teamA, teamB, bo)
+                outcome = st.selectbox(
+                    f"{teamA} vs {teamB} ({date})",
+                    options,
+                    format_func=lambda x: x[0],
+                    key=f"match_{date}_{teamA}"
+                )
+                forced_outcomes[match_key] = outcome[1]
+                
 # 5. Prepare data inputs for the cached function
 current_wins, current_diff = defaultdict(int), defaultdict(int)
 for m in played_matches:
