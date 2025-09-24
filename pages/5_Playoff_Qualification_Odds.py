@@ -115,17 +115,29 @@ def single_table_dashboard():
             else: st.dataframe(sim_results, use_container_width=True, hide_index=True)
 
 def group_dashboard():
-    st.header(f"Simulation for {tournament_name} (Group Stage)"); st.button("← Change Tournament Format", on_click=lambda: st.session_state.update(page_view='format_selection'))
-    group_config = st.session_state.group_config; groups = group_config.get('groups', {})
+    st.header(f"Simulation for {tournament_name} (Group Stage)")
+    st.button("← Change Tournament Format", on_click=lambda: st.session_state.update(page_view='format_selection'))
+    
+    # --- Data Prep ---
+    group_config = st.session_state.group_config
+    groups = group_config.get('groups', {})
     week_blocks = build_week_blocks(sorted(list(set(m["date"] for m in regular_season_matches))))
+    
+    # --- Sidebar ---
     st.sidebar.header("Simulation Controls")
     cutoff_week_label = st.sidebar.select_slider("Select Cutoff Week:", options=[f"Week {i+1}" for i in range(len(week_blocks))], value=f"Week {len(week_blocks)}")
     cutoff_week_idx = int(cutoff_week_label.split(" ")[1]) - 1
     n_sim = st.sidebar.number_input("Simulations:", 1000, 100000, 10000, 1000, key="group_sim_count")
     brackets = load_bracket_config(tournament_name)['brackets']
+    
+    # --- Data Processing ---
     cutoff_dates = set(d for i in range(cutoff_week_idx + 1) for d in week_blocks[i]) if cutoff_week_idx >= 0 else set()
-    played = [m for m in regular_season_matches if m["date"] in cutoff_dates and m.get("winner") in ("1", "2")]; unplayed = [m for m in regular_season_matches if m not in played]
-    st.subheader("Upcoming Matches (What-If Scenarios)"); forced_outcomes = {}
+    played = [m for m in regular_season_matches if m["date"] in cutoff_dates and m.get("winner") in ("1", "2")]
+    unplayed = [m for m in regular_season_matches if m not in played]
+    
+    # --- "What-If" Scenarios ---
+    st.subheader("Upcoming Matches (What-If Scenarios)")
+    forced_outcomes = {}
     with st.expander("Set outcomes for upcoming matches", expanded=True):
         if not unplayed: st.info("No matches left to simulate.")
         else:
@@ -134,26 +146,52 @@ def group_dashboard():
                 match_key, options = (teamA, teamB, date), get_series_outcome_options(teamA, teamB, bo)
                 outcome = st.selectbox(f"{teamA} vs {teamB} ({date})", options, format_func=lambda x: x[0], key=f"g_match_{date}_{teamA}_{teamB}")
                 forced_outcomes[match_key] = outcome[1]
+    
+    # --- Simulation Call ---
     current_wins, current_diff = defaultdict(int), defaultdict(int)
     for m in played:
-        winner_idx = int(m["winner"]) - 1; teams_in_match = [m["teamA"], m["teamB"]]; winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
-        current_wins[winner] += 1; s_w, s_l = (m["scoreA"], m["scoreB"]) if winner_idx == 0 else (m["scoreB"], m["scoreA"])
-        current_diff[winner] += s_w - s_l; current_diff[loser] += s_l - s_w
+        winner_idx = int(m["winner"]) - 1
+        teams_in_match = [m["teamA"], m["teamB"]]
+        winner, loser = teams_in_match[winner_idx], teams_in_match[1 - winner_idx]
+        current_wins[winner] += 1
+        s_w, s_l = (m["scoreA"], m["scoreB"]) if winner_idx == 0 else (m["scoreB"], m["scoreA"])
+        current_diff[winner] += s_w - s_l
+        current_diff[loser] += s_l - s_w
     sim_results = cached_group_sim(groups, tuple(sorted(current_wins.items())), tuple(sorted(current_diff.items())), tuple((m["teamA"], m["teamB"], m["date"], m["bestof"]) for m in unplayed), tuple(sorted(forced_outcomes.items())), tuple(frozenset(b.items()) for b in brackets), n_sim)
-    st.markdown("---"); st.subheader("Results")
-    tab1, tab2 = st.tabs(["Current Standings", "Playoff Probabilities"])
-    with tab1:
-        group_teams = [team for g in groups.values() for team in g]
-        standings_tabs = st.tabs(["Overall"] + sorted(groups.keys()))
-        with standings_tabs[0]: st.dataframe(build_standings_table(group_teams, played), use_container_width=True)
-        for i, group_name in enumerate(sorted(groups.keys())):
-            with standings_tabs[i+1]: st.dataframe(build_standings_table(groups[group_name], played), use_container_width=True)
-    with tab2:
-        if sim_results is not None and not sim_results.empty:
-            prob_tabs = st.tabs(["Overall"] + sorted(groups.keys()))
-            with prob_tabs[0]: st.dataframe(sim_results, use_container_width=True, hide_index=True)
-            for i, group_name in enumerate(sorted(groups.keys())):
-                with prob_tabs[i+1]: st.dataframe(sim_results[sim_results['Group'] == group_name].drop(columns=['Group']), use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    st.subheader("Results")
+    
+    # --- NEW: Restructured Results Display ---
+    result_tabs = st.tabs(["Overall"] + sorted(groups.keys()))
+
+    # Overall Tab
+    with result_tabs[0]:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**Current Standings (Overall)**")
+            overall_teams = [team for g_teams in groups.values() for team in g_teams]
+            standings_df = build_standings_table(overall_teams, played)
+            st.dataframe(standings_df, use_container_width=True)
+        with col2:
+            st.write("**Playoff Probabilities (Overall)**")
+            if sim_results is not None and not sim_results.empty:
+                st.dataframe(sim_results, use_container_width=True, hide_index=True)
+
+    # Individual Group Tabs
+    for i, group_name in enumerate(sorted(groups.keys())):
+        with result_tabs[i+1]:
+            col1, col2 = st.columns(2)
+            group_teams = groups[group_name]
+            with col1:
+                st.write(f"**Current Standings ({group_name})**")
+                standings_df = build_standings_table(group_teams, played)
+                st.dataframe(standings_df, use_container_width=True)
+            with col2:
+                st.write(f"**Playoff Probabilities ({group_name})**")
+                if sim_results is not None and not sim_results.empty:
+                    group_probs = sim_results[sim_results['Group'] == group_name].drop(columns=['Group'])
+                    st.dataframe(group_probs, use_container_width=True, hide_index=True)
 
 # --- Page Router ---
 # On first load for a tournament, try to load the saved format
