@@ -12,12 +12,12 @@ st.set_page_config(layout="wide")
 
 st.title("🎯 Professional Drafting Assistant")
 
-# --- This is the corrected guard clause, just like the other pages ---
-if not st.session_state.get('data_loaded', False):
+# --- This is the corrected guard clause, identical to other working pages ---
+if 'data_loaded' not in st.session_state or not st.session_state.data_loaded:
     st.warning("Please select one or more tournaments from the main page and click 'Load Data'.")
     st.stop()
+# --- End of fix ---
 
-# --- All the page logic is now un-indented and runs directly ---
 
 def initialize_draft_state():
     """Initializes the session state for the draft."""
@@ -47,6 +47,7 @@ def get_draft_phase():
 
     return "DRAFT COMPLETE", None
 
+
 def render_suggestion_box(team_color, phase, turn):
     """Renders the AI suggestion box for the active team."""
     if (team_color == 'blue' and turn != 'B') or (team_color == 'red' and turn != 'R'):
@@ -54,6 +55,7 @@ def render_suggestion_box(team_color, phase, turn):
 
     st.markdown(f"**AI Suggestions for {'Blue' if team_color == 'blue' else 'Red'} Team**")
     
+    # Prepare data for AI functions
     available_heroes = [h for h in st.session_state.all_heroes if h not in st.session_state.taken_heroes]
     your_picks = st.session_state.blue_picks if team_color == 'blue' else st.session_state.red_picks
     enemy_picks = st.session_state.red_picks if team_color == 'blue' else st.session_state.blue_picks
@@ -84,6 +86,7 @@ def render_suggestion_box(team_color, phase, turn):
             for i, (hero_pair, prob) in enumerate(suggestions[:3]):
                  st.button(f"Pick {hero_pair[0]} & {hero_pair[1]} (→ {prob:.1%} Win)", key=f"{team_color}_pick_pair_{i}", on_click=handle_suggestion_click, args=(hero_pair[0], "pick", team_color))
 
+
 def handle_suggestion_click(hero, action, team_color):
     """Callback to apply a suggestion to the draft state."""
     if action == "ban":
@@ -96,6 +99,8 @@ def handle_suggestion_click(hero, action, team_color):
         if open_role:
             pick_dict[open_role] = hero
 
+# --- Main App UI ---
+
 # Initialization
 initialize_draft_state()
 try:
@@ -106,7 +111,7 @@ except FileNotFoundError:
     st.stop()
 
 
-# Header and Controls
+# --- Header and Controls ---
 phase, turn = get_draft_phase()
 color = "blue" if turn == 'B' else "red" if turn == 'R' else "green"
 st.markdown(f"### <span style='color:{color};'>{'Blue' if turn == 'B' else 'Red' if turn == 'R' else ''} Turn ({phase})</span>", unsafe_allow_html=True)
@@ -120,7 +125,7 @@ with col3:
     st.selectbox("Series Format", options=[1, 2, 3, 5, 7], format_func=lambda x: f"Best-of-{x}", key='sb_series_format')
 
 
-# Win Probability and Analysis
+# --- Win Probability and Analysis ---
 st.session_state.taken_heroes = set(st.session_state.blue_bans + st.session_state.red_bans + list(st.session_state.blue_picks.values()) + list(st.session_state.red_picks.values())) - {None}
 available_heroes = [h for h in st.session_state.all_heroes if h not in st.session_state.taken_heroes]
 
@@ -145,7 +150,7 @@ with st.expander("Show/Hide Detailed Draft Analysis"):
 st.markdown("---")
 
 
-# Drafting Area
+# --- Drafting Area ---
 blue_col, red_col = st.columns(2)
 
 with blue_col:
