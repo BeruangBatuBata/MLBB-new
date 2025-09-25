@@ -34,10 +34,15 @@ if 'red_team' not in st.session_state:
 
 # --- Data for UI ---
 ALL_HERO_NAMES = get_all_hero_names(HERO_PROFILES)
-ALL_TEAMS = sorted(list(set(team for t_info in ALL_TOURNAMENTS.values() for team in [t_info.get('region')]))) # Simplified for example
-if model_assets.get('all_teams'):
+
+# This is the corrected logic. It uses the reliable team list from the trained model.
+if 'all_teams' in model_assets:
     ALL_TEAMS = sorted(model_assets['all_teams'])
-    
+else:
+    # Fallback if the team list isn't in the model file for some reason
+    st.warning("Team list not found in model assets. Using a generic list.")
+    ALL_TEAMS = []
+
 hero_options = [None] + ALL_HERO_NAMES
 team_options = [None] + ALL_TEAMS
 
