@@ -98,7 +98,7 @@ with st.sidebar:
                 st.info(f"Beginning training on {len(training_matches)} raw matches...")
                 try:
                     with st.spinner("Training advanced XGBoost model... This may take a minute."):
-                        message = train_and_save_prediction_model(training_matches, HERO_PROFILES, HERO_DAMAGE_TYPE)
+                        message = train_and_save_prediction_model(training_matches, HERO_PROFILES)
                     st.success(message)
                 except Exception as e:
                     st.error(f"An error occurred during training: {e}")
