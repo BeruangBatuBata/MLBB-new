@@ -2,17 +2,15 @@ import pandas as pd
 import numpy as np
 import xgboost as xgb
 import joblib
-from collections import defaultdict, Counter
-import itertools
-import math
+from collections import defaultdict
 
 def get_all_hero_names(HERO_PROFILES):
-    """Gets a sorted list of all hero names from the profiles."""
     return sorted(list(HERO_PROFILES.keys()))
 
 def train_and_save_prediction_model(matches, HERO_PROFILES, model_filename='draft_predictor.joblib'):
     """
-    Trains an advanced XGBoost model and saves all necessary assets, including the team list.
+    Trains an advanced XGBoost model and saves all necessary assets,
+    including the critical 'all_teams' list.
     """
     all_heroes = sorted(list(set(p['champion'] for m in matches for g in m.get('match2games', []) for o in g.get('opponents', []) for p in o.get('players', []) if 'champion' in p)))
     all_teams = sorted(list(set(o['name'] for m in matches for o in m.get('match2opponents', []) if 'name' in o)))
@@ -71,11 +69,13 @@ def train_and_save_prediction_model(matches, HERO_PROFILES, model_filename='draf
     model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss', n_estimators=200, max_depth=6, learning_rate=0.05, colsample_bytree=0.8)
     model.fit(np.array(X), np.array(y))
     
+    # This dictionary now correctly includes the 'all_teams' list.
     model_assets = {'model': model, 'feature_to_idx': feature_to_idx, 'roles': roles, 'all_heroes': all_heroes, 'all_tags': all_tags, 'all_teams': all_teams}
     joblib.dump(model_assets, model_filename)
     return f"✅ AI Model training complete. Saved to '{model_filename}'"
 
 def predict_draft_outcome(blue_picks, red_picks, blue_team, red_team, model_assets, HERO_PROFILES):
+    # This function now correctly and safely unpacks 'all_teams'.
     model, feature_to_idx, all_heroes, all_teams = model_assets['model'], model_assets['feature_to_idx'], model_assets['all_heroes'], model_assets['all_teams']
     vector = np.zeros(len(feature_to_idx))
     for role, hero in blue_picks.items():
@@ -99,19 +99,3 @@ def predict_draft_outcome(blue_picks, red_picks, blue_team, red_team, model_asse
     if blue_team in all_teams and blue_team in feature_to_idx: vector[feature_to_idx[blue_team]] = 1
     if red_team in all_teams and red_team in feature_to_idx: vector[feature_to_idx[red_team]] = -1
     return model.predict_proba(vector.reshape(1, -1))[0][1]
-
-def calculate_series_score_probs(p_win_game, series_format=3):
-    """Calculates the probability of each specific score in a Best-of-X series."""
-    if p_win_game is None or not (0 <= p_win_game <= 1): return {}
-    p, q = p_win_game, 1 - p_win_game
-    wins_needed = math.ceil((series_format + 1) / 2)
-    results = {}
-    for losses in range(wins_needed):
-        games_played = wins_needed + losses
-        if games_played > series_format: continue
-        combinations = math.comb(games_played - 1, wins_needed - 1)
-        prob_A_wins = combinations * (p ** wins_needed) * (q ** losses)
-        results[f"{wins_needed}-{losses}"] = prob_A_wins
-        prob_B_wins = combinations * (q ** wins_needed) * (p ** losses)
-        results[f"{losses}-{wins_needed}"] = prob_B_wins
-    return dict(sorted(results.items(), key=lambda item: item[1], reverse=True))
