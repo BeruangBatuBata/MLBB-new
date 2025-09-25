@@ -10,12 +10,12 @@ import joblib
 
 st.title("🎯 Professional Drafting Assistant")
 
-# This is the corrected data check, identical to your other pages
+# This now checks for the CORRECT variable name.
 if 'data_loaded' not in st.session_state or not st.session_state.data_loaded:
     st.warning("Please select one or more tournaments from the main page and click 'Load Data'.")
     st.stop()
 
-# --- The rest of the page code now runs correctly ---
+# --- The rest of the page code will now execute correctly ---
 
 def initialize_draft_state():
     """Initializes the session state for the draft."""
