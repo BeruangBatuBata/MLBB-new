@@ -35,17 +35,23 @@ if 'red_team' not in st.session_state:
 # --- Data for UI ---
 ALL_HERO_NAMES = get_all_hero_names(HERO_PROFILES)
 
-# This is the corrected logic. It uses the reliable team list from the trained model.
-if 'all_teams' in model_assets:
-    ALL_TEAMS = sorted(model_assets['all_teams'])
+# THIS IS THE CORRECT LOGIC, COPIED FROM YOUR NOTEBOOK'S DESIGN
+# It dynamically builds the team list from the currently loaded data.
+if 'pooled_matches' in st.session_state and st.session_state['pooled_matches']:
+    all_teams_set = set()
+    for match in st.session_state['pooled_matches']:
+        for opp in match.get("match2opponents", []):
+            team_name = opp.get("name", "").strip()
+            if team_name:
+                all_teams_set.add(team_name)
+    ALL_TEAMS = sorted(list(all_teams_set))
 else:
-    # Fallback if the team list isn't in the model file for some reason
-    st.warning("Team list not found in model assets. Using a generic list.")
+    # If no data is loaded, the list will be empty, prompting the user to load data first.
+    st.warning("Please load tournament data on the homepage to populate the team lists.")
     ALL_TEAMS = []
 
 hero_options = [None] + ALL_HERO_NAMES
 team_options = [None] + ALL_TEAMS
-
 # --- Helper function for dynamic UI updates ---
 def update_draft_state():
     # This function will be implicitly called on every widget change by Streamlit's rerun
