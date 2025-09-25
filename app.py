@@ -2,7 +2,7 @@ import streamlit as st
 from collections import OrderedDict
 from utils.data_processing import parse_matches
 from utils.api_handler import ALL_TOURNAMENTS, load_tournament_data
-from utils.drafting_ai import train_and_save_prediction_model
+from utils.model_training import train_and_save_prediction_model
 from utils.data_processing import HERO_PROFILES, HERO_DAMAGE_TYPE
 from collections import OrderedDict
 
