@@ -1,141 +1,176 @@
 import streamlit as st
-import pandas as pd
+from utils.drafting_ai import (
+    predict_draft_outcome,
+    generate_prediction_explanation,
+    calculate_series_score_probs,
+    calculate_ban_suggestions_ML,
+    calculate_pick_suggestions_ML
+)
 import joblib
-from collections import defaultdict
-from utils.drafting_ai import predict_draft_outcome, get_all_hero_names, calculate_series_score_probs
-from utils.data_processing import HERO_PROFILES, HERO_DAMAGE_TYPE
 
-st.set_page_config(layout="wide", page_title="Drafting Assistant")
+st.set_page_config(layout="wide")
 
-def generate_prediction_explanation(blue_picks, red_picks, HERO_PROFILES, HERO_DAMAGE_TYPE):
-    """Generates a detailed, dual-sided analysis for the draft."""
-    def analyze_single_team_draft(team_picks, enemy_picks):
-        results = {'warnings': [], 'strengths': [], 'strategy': [], 'pacing': []}
-        if not team_picks: return results
-        tags_to_heroes = defaultdict(list); all_tags = []
-        for hero in team_picks:
-            profiles = HERO_PROFILES.get(hero)
-            if profiles:
-                for tag in profiles[0]['tags']: all_tags.append(tag); tags_to_heroes[tag].append(hero)
-        if 'Front-line' not in all_tags and 'Initiator' not in all_tags: results['warnings'].append("⚠️ **Lacks a durable front-line.**")
-        damage_dealers = [h for h in team_picks if HERO_PROFILES.get(h, [{}])[0].get('primary_role', '') in ['Mid', 'Gold', 'Jungle']]
-        if len(damage_dealers) >= 2:
-            magic_count = sum(1 for h in damage_dealers if 'Magic' in HERO_DAMAGE_TYPE.get(h, []))
-            phys_count = sum(1 for h in damage_dealers if 'Physical' in HERO_DAMAGE_TYPE.get(h, []))
-            if magic_count == 0 and phys_count > 1: results['warnings'].append("⚠️ **Lacks magic damage.**")
-            elif phys_count == 0 and magic_count > 1: results['warnings'].append("⚠️ **Lacks physical damage.**")
-            else: results['strengths'].append("✅ **Balanced damage profile.**")
-        if len(tags_to_heroes.get('Early Game', [])) >= 2: results['pacing'].append(f"🕒 **Pacing:** Strong Early Game.")
-        if len(tags_to_heroes.get('Late Game', [])) >= 2: results['pacing'].append(f"🕒 **Pacing:** Strong Late Game Scaling.")
-        if len(tags_to_heroes.get('Initiator',[])) >= 1 and len(tags_to_heroes.get('AoE Damage',[])) >= 2: results['strategy'].append(f"📈 **Strategy:** Strong Team Fighting.")
-        if len(tags_to_heroes.get('High Mobility',[])) >= 2 and len(tags_to_heroes.get('Burst',[])) >= 2: results['strategy'].append(f"📈 **Strategy:** Excellent Pick-off.")
-        if len(tags_to_heroes.get('Poke',[])) >= 2 and len(tags_to_heroes.get('Long Range',[])) >= 1: results['strategy'].append(f"📈 **Strategy:** Strong Poke & Siege.")
-        return results
+def initialize_draft_state():
+    """Initializes the session state for the draft."""
+    if 'draft_initialized' not in st.session_state:
+        st.session_state.blue_bans = [None] * 5
+        st.session_state.red_bans = [None] * 5
+        st.session_state.blue_picks = {role: None for role in st.session_state.position_labels}
+        st.session_state.red_picks = {role: None for role in st.session_state.position_labels}
+        st.session_state.blue_team = None
+        st.session_state.red_team = None
+        st.session_state.draft_initialized = True
 
-    blue_analysis = analyze_single_team_draft(blue_picks, red_picks)
-    red_analysis = analyze_single_team_draft(red_picks, blue_picks)
-    return {
-        'blue': (blue_analysis['warnings'] + blue_analysis['pacing'] + blue_analysis['strategy'] + blue_analysis['strengths']),
-        'red': (red_analysis['warnings'] + red_analysis['pacing'] + red_analysis['strategy'] + red_analysis['strengths'])
-    }
+def get_draft_phase():
+    """Determines the current phase and turn of the draft."""
+    b_bans = sum(1 for b in st.session_state.blue_bans if b)
+    r_bans = sum(1 for b in st.session_state.red_bans if b)
+    b_picks = sum(1 for p in st.session_state.blue_picks.values() if p)
+    r_picks = sum(1 for p in st.session_state.red_picks.values() if p)
 
+    total_bans = b_bans + r_bans
+    total_picks = b_picks + r_picks
+
+    if total_bans < 6: return "BAN", ['B', 'R', 'B', 'R', 'B', 'R'][total_bans]
+    if total_picks < 6: return "PICK", ['B', 'R', 'R', 'B', 'B', 'R'][total_picks]
+    if total_bans < 10: return "BAN", ['R', 'B', 'R', 'B'][total_bans - 6]
+    if total_picks < 10: return "PICK", ['R', 'B', 'B', 'R'][total_picks - 6]
+
+    return "DRAFT COMPLETE", None
+
+
+def render_suggestion_box(team_color, phase, turn):
+    """Renders the AI suggestion box for the active team."""
+    if (team_color == 'blue' and turn != 'B') or (team_color == 'red' and turn != 'R'):
+        return
+
+    st.markdown(f"**AI Suggestions for {'Blue' if team_color == 'blue' else 'Red'} Team**")
+    
+    # Prepare data for AI functions
+    available_heroes = [h for h in st.session_state.all_heroes if h not in st.session_state.taken_heroes]
+    your_picks = st.session_state.blue_picks if team_color == 'blue' else st.session_state.red_picks
+    enemy_picks = st.session_state.red_picks if team_color == 'blue' else st.session_state.blue_picks
+    your_team = st.session_state.blue_team
+    enemy_team = st.session_state.red_team
+    is_blue = (team_color == 'blue')
+
+    if phase == "BAN":
+        with st.spinner("Calculating ban threats..."):
+            suggestions = calculate_ban_suggestions_ML(available_heroes, your_picks, enemy_picks, your_team, enemy_team, st.session_state.model_assets, is_blue)
+        for i, (hero, threat) in enumerate(suggestions[:5]):
+            st.button(f"Ban {hero} ({threat:.1%} Threat)", key=f"{team_color}_ban_{i}", on_click=handle_suggestion_click, args=(hero, "ban", team_color))
+
+    elif phase == "PICK":
+        pick_order = ['B', 'R', 'R', 'B', 'B', 'R', 'R', 'B', 'B', 'R']
+        total_picks = sum(1 for p in your_picks.values() if p) + sum(1 for p in enemy_picks.values() if p)
+        is_double_pick = (total_picks < len(pick_order) - 1 and pick_order[total_picks] == pick_order[total_picks+1])
+        num_picks = 2 if is_double_pick else 1
+
+        with st.spinner(f"Simulating {num_picks} pick(s)..."):
+            suggestions = calculate_pick_suggestions_ML(available_heroes, your_picks, enemy_picks, your_team, enemy_team, st.session_state.model_assets, is_blue, num_picks)
+
+        if num_picks == 1:
+            for i, (hero, prob) in enumerate(suggestions[:5]):
+                st.button(f"Pick {hero} (→ {prob:.1%} Win)", key=f"{team_color}_pick_{i}", on_click=handle_suggestion_click, args=(hero, "pick", team_color))
+        else:
+            st.markdown("_Suggestion for double pick:_")
+            for i, (hero_pair, prob) in enumerate(suggestions[:3]):
+                 st.button(f"Pick {hero_pair[0]} & {hero_pair[1]} (→ {prob:.1%} Win)", key=f"{team_color}_pick_pair_{i}", on_click=handle_suggestion_click, args=(hero_pair[0], "pick", team_color))
+
+
+def handle_suggestion_click(hero, action, team_color):
+    """Callback to apply a suggestion to the draft state."""
+    if action == "ban":
+        ban_list = st.session_state.blue_bans if team_color == 'blue' else st.session_state.red_bans
+        if None in ban_list:
+            ban_list[ban_list.index(None)] = hero
+    elif action == "pick":
+        pick_dict = st.session_state.blue_picks if team_color == 'blue' else st.session_state.red_picks
+        open_role = next((role for role, hero in pick_dict.items() if hero is None), None)
+        if open_role:
+            pick_dict[open_role] = hero
+
+# --- Main App UI ---
 st.title("🎯 Professional Drafting Assistant")
 
-try:
-    model_assets = joblib.load('draft_predictor.joblib')
-except FileNotFoundError:
-    st.error("Fatal Error: 'draft_predictor.joblib' not found. Please train the model on the homepage first.")
-    st.stop()
-
-# --- DYNAMIC UI DATA ---
-ALL_HERO_NAMES = get_all_hero_names(HERO_PROFILES)
-if 'pooled_matches' in st.session_state and st.session_state['pooled_matches']:
-    all_teams_set = {opp.get("name", "").strip() for match in st.session_state['pooled_matches'] for opp in match.get("match2opponents", []) if opp.get("name", "").strip()}
-    ALL_TEAMS = sorted(list(all_teams_set))
+if 'data_loaded' not in st.session_state or not st.session_state.data_loaded:
+    st.warning("Please load tournament data from the main page first.")
 else:
-    st.warning("Please load tournament data on the homepage to populate the team lists.", icon="👈")
-    ALL_TEAMS = model_assets['all_teams'] # Fallback to model's team list
+    # Initialization
+    initialize_draft_state()
+    try:
+        if 'model_assets' not in st.session_state:
+            st.session_state.model_assets = joblib.load('draft_predictor.joblib')
+    except FileNotFoundError:
+        st.error("Fatal: `draft_predictor.joblib` not found. Please ensure the model is trained and available in the root directory.")
+        st.stop()
 
-hero_options = ["(None)"] + ALL_HERO_NAMES
-team_options = ["(None)"] + ALL_TEAMS
 
-# --- DRAFT STATE ---
-roles = model_assets['roles']
-st.session_state.setdefault('blue_picks', {role: "(None)" for role in roles})
-st.session_state.setdefault('red_picks', {role: "(None)" for role in roles})
-st.session_state.setdefault('blue_bans', ["(None)"] * 5)
-st.session_state.setdefault('red_bans', ["(None)"] * 5)
-
-# --- HEADER ---
-st.markdown("Select teams, then fill in the picks and bans as they happen to see a real-time win probability prediction.")
-st.markdown("---")
-prediction_placeholder = st.empty()
-explanation_placeholder = st.empty()
-
-# --- DRAFTING UI ---
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("Blue Side")
-    st.selectbox("Blue Team", options=team_options, key="blue_team")
-    st.write("**Bans**")
-    ban_cols = st.columns(5)
-    for i in range(5):
-        ban_cols[i].selectbox(f"B{i+1}", options=hero_options, key=f"blue_ban_{i}")
-    st.write("**Picks**")
-    for role in roles:
-        st.selectbox(role, options=hero_options, key=f"blue_pick_{role}")
-
-with col2:
-    st.subheader("Red Side")
-    st.selectbox("Red Team", options=team_options, key="red_team")
-    st.write("**Bans**")
-    ban_cols = st.columns(5)
-    for i in range(5):
-        ban_cols[i].selectbox(f"B{i+1}", options=hero_options, key=f"red_ban_{i}")
-    st.write("**Picks**")
-    for role in roles:
-        st.selectbox(role, options=hero_options, key=f"red_pick_{role}")
-
-# --- PREDICTION LOGIC (RUNS ON EVERY INTERACTION) ---
-s = st.session_state
-blue_team, red_team = s.blue_team, s.red_team
-blue_picks = {role: s[f"blue_pick_{role}"] for role in roles if s[f"blue_pick_{role}"] != "(None)"}
-red_picks = {role: s[f"red_pick_{role}"] for role in roles if s[f"red_pick_{role}"] != "(None)"}
-
-if blue_team != "(None)" and red_team != "(None)" and blue_picks and red_picks:
-    win_prob_blue = predict_draft_outcome(blue_picks, red_picks, blue_team, red_team, model_assets, HERO_PROFILES)
-    win_prob_red = 1 - win_prob_blue
+    # --- Header and Controls ---
+    phase, turn = get_draft_phase()
+    color = "blue" if turn == 'B' else "red" if turn == 'R' else "green"
+    st.markdown(f"### <span style='color:{color};'>{'Blue' if turn == 'B' else 'Red' if turn == 'R' else ''} Turn ({phase})</span>", unsafe_allow_html=True)
     
-    with prediction_placeholder.container():
-        st.subheader("Live Win Probability (Single Game)")
-        blue_pct, red_pct = int(win_prob_blue * 100), int(win_prob_red * 100)
-        st.markdown(f"""
-        <div style="display: flex; width: 100%; height: 32px; font-weight: bold; font-size: 16px; border-radius: 5px; overflow: hidden;">
-            <div style="width: {blue_pct}%; background-color: #4299e1; color: white; display: flex; align-items: center; justify-content: center;">{blue_pct}%</div>
-            <div style="width: {red_pct}%; background-color: #f56565; color: white; display: flex; align-items: center; justify-content: center;">{red_pct}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.session_state.blue_team = st.selectbox("Blue Team", options=[None] + st.session_state.all_teams, key='sb_blue_team')
+    with col2:
+        st.session_state.red_team = st.selectbox("Red Team", options=[None] + st.session_state.all_teams, key='sb_red_team')
+    with col3:
+        st.selectbox("Series Format", options=[1, 2, 3, 5, 7], format_func=lambda x: f"Best-of-{x}", key='sb_series_format')
 
-        series_probs = calculate_series_score_probs(win_prob_blue, series_format=3)
-        if series_probs:
-            st.write("**Best-of-3 Series Score Probability**")
-            series_text = ""
-            for score, prob in series_probs.items():
-                s1, s2 = map(int, score.split('-'))
-                winner = f"<span style='color:#4299e1;'>{blue_team}</span>" if s1 > s2 else f"<span style='color:#f56565;'>{red_team}</span>"
-                series_text += f"&nbsp;&nbsp;&nbsp;•&nbsp; {winner} wins {score}: **{prob:.1%}**"
-            st.markdown(series_text, unsafe_allow_html=True)
+
+    # --- Win Probability and Analysis ---
+    st.session_state.taken_heroes = set(st.session_state.blue_bans + st.session_state.red_bans + list(st.session_state.blue_picks.values()) + list(st.session_state.red_picks.values())) - {None}
+    available_heroes = [h for h in st.session_state.all_heroes if h not in st.session_state.taken_heroes]
     
-    with explanation_placeholder.container():
-        st.markdown("---")
-        st.subheader("Draft Analysis")
-        explanation = generate_prediction_explanation(list(blue_picks.values()), list(red_picks.values()), HERO_PROFILES, HERO_DAMAGE_TYPE)
+    win_prob_overall, win_prob_draft = predict_draft_outcome(st.session_state.blue_picks, st.session_state.red_picks, st.session_state.blue_team, st.session_state.red_team, st.session_state.model_assets)
+
+    st.progress(win_prob_overall, text=f"Overall Win Prediction: Blue {win_prob_overall:.1%} vs Red {1-win_prob_overall:.1%}")
+    st.progress(win_prob_draft, text=f"Draft-Only Prediction: Blue {win_prob_draft:.1%} vs Red {1-win_prob_draft:.1%}")
+    
+    explanation = generate_prediction_explanation(list(st.session_state.blue_picks.values()), list(st.session_state.red_picks.values()))
+    
+    with st.expander("Show/Hide Detailed Draft Analysis"):
         col1, col2 = st.columns(2)
         with col1:
-            st.write("**Blue Side Analysis**")
-            for point in explanation['blue']: st.markdown(f"- {point}")
+            st.markdown("##### Blue Team Analysis")
+            for point in explanation['blue']:
+                st.markdown(f"- {point}")
         with col2:
-            st.write("**Red Side Analysis**")
-            for point in explanation['red']: st.markdown(f"- {point}")
-else:
-    prediction_placeholder.info("Prediction will appear here once both teams and at least one pick for each side are selected.")
+            st.markdown("##### Red Team Analysis")
+            for point in explanation['red']:
+                st.markdown(f"- {point}")
+
+    st.markdown("---")
+
+
+    # --- Drafting Area ---
+    blue_col, red_col = st.columns(2)
+
+    with blue_col:
+        st.markdown("<h4 style='color:blue;'>Blue Team Draft</h4>", unsafe_allow_html=True)
+        st.markdown("**Bans**")
+        ban_cols = st.columns(5)
+        for i in range(5):
+            st.session_state.blue_bans[i] = ban_cols[i].selectbox(f"B{i+1}", [None] + available_heroes, key=f"blue_ban_{i}", index=([None] + available_heroes).index(st.session_state.blue_bans[i]) if st.session_state.blue_bans[i] in available_heroes else 0, label_visibility="collapsed")
+
+        st.markdown("**Picks**")
+        for i, role in enumerate(st.session_state.position_labels):
+            st.session_state.blue_picks[role] = st.selectbox(role, [None] + available_heroes, key=f"blue_pick_{i}", index=([None] + available_heroes).index(st.session_state.blue_picks[role]) if st.session_state.blue_picks[role] in available_heroes else 0)
+
+        render_suggestion_box('blue', phase, turn)
+
+
+    with red_col:
+        st.markdown("<h4 style='color:red;'>Red Team Draft</h4>", unsafe_allow_html=True)
+        st.markdown("**Bans**")
+        ban_cols = st.columns(5)
+        for i in range(5):
+            st.session_state.red_bans[i] = ban_cols[i].selectbox(f"B{i+1}", [None] + available_heroes, key=f"red_ban_{i}", index=([None] + available_heroes).index(st.session_state.red_bans[i]) if st.session_state.red_bans[i] in available_heroes else 0, label_visibility="collapsed")
+            
+        st.markdown("**Picks**")
+        for i, role in enumerate(st.session_state.position_labels):
+            st.session_state.red_picks[role] = st.selectbox(role, [None] + available_heroes, key=f"red_pick_{i}", index=([None] + available_heroes).index(st.session_state.red_picks[role]) if st.session_state.red_picks[role] in available_heroes else 0)
+
+        render_suggestion_box('red', phase, turn)
