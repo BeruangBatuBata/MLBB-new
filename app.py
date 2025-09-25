@@ -63,18 +63,4 @@ with st.sidebar:
                     st.success(f"Loaded data for {len(selected_tournaments)} tournament(s).")
                 else:
                     st.error("Could not load any match data.")
-
-    with col2:
-        if st.button("Clear Live Cache", use_container_width=True):
-            live_selected = [t for t in selected_tournaments if ALL_TOURNAMENTS[t].get('live')]
-            if not live_selected:
-                st.warning("Please select at least one 'live' tournament to clear its cache.")
-            else:
-                cleared_count = 0
-                for name in live_selected:
-                    filename = f"{name.replace(' ', '_').replace('/', '_')}.json"
-                    filepath = f"data/{filename}"
-                    if os.path.exists(filepath):
-                        os.remove(filepath)
-                        cleared_count += 1
                 st.success(f"Cleared cache for {cleared_count} live tournament(s). Click 'Load Data' to refresh.")
